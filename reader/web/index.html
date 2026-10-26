@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="editor.css">
   <link rel="stylesheet" href="builders.css">
+  <link rel="stylesheet" href="library.css">
   <script src="qrc:///qtwebchannel/qwebchannel.js" defer></script>
   <script src="bidi.js" defer></script>
   <script src="formatting.js" defer></script>
@@ -15,6 +16,8 @@
   <script src="vendor/mermaid.min.js" defer></script>
   <script src="diagrams.js" defer></script>
   <script src="builders.js" defer></script>
+  <script src="annotations.js" defer></script>
+  <script src="library-ui.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -36,6 +39,9 @@
     <symbol id="i-save" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12l4 4v12a2 2 0 0 1-2 2ZM7 3v6h10V3M7 21v-8h10v8"/></symbol>
     <symbol id="i-edit" viewBox="0 0 24 24"><path d="m16 3 5 5-12 12-6 1 1-6ZM14 5l5 5"/></symbol>
     <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 20c-3-2-6-3-10-2V4c4-1 7 0 10 2 3-2 6-3 10-2v14c-4-1-7 0-10 2Zm0-14v14"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z"/></symbol>
+    <symbol id="i-mark" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4Z"/></symbol>
+    <symbol id="i-note" viewBox="0 0 24 24"><path d="M4 3h16v13l-5 5H4Zm11 18v-5h5M8 8h8M8 12h6"/></symbol>
   </defs></svg>
 
   <div class="app-shell">
@@ -46,8 +52,9 @@
       <div class="file-drop-hint">or drop a file here <span dir="ltr">.md · .html</span></div>
 
       <section class="files-section"><div class="section-label"><span>OPEN FILES</span><span id="file-count" class="count-badge">0</span></div><div id="file-list" class="file-list"></div></section>
+      <section class="library-section" aria-label="Saved document library"><div class="library-heading"><div class="section-label">LIBRARY</div><div class="library-filter" role="group" aria-label="Library filter"><button id="library-all" class="active" aria-pressed="true">All</button><button id="library-starred" aria-pressed="false">Starred</button></div></div><div id="library-list" class="library-list"></div></section>
       <section class="outline-section"><div class="section-label"><span>ON THIS PAGE</span><svg><use href="#i-book"/></svg></div><nav id="outline" aria-label="Document outline"></nav></section>
-      <div class="sidebar-bottom"><button id="sample-button" class="text-button"><svg><use href="#i-book"/></svg>Meet Khana</button><div class="local-note"><span class="status-dot"></span>Local & offline<svg><use href="#i-lock"/></svg></div><div class="version-note">Khana <span dir="ltr">/ 0.3</span><span>Read. Write. Make it yours.</span></div></div>
+      <div class="sidebar-bottom"><button id="sample-button" class="text-button"><svg><use href="#i-book"/></svg>Meet Khana</button><div class="local-note"><span class="status-dot"></span>Local & offline<svg><use href="#i-lock"/></svg></div><div class="version-note">Khana <span dir="ltr">/ 0.4</span><span>Read. Write. Make it yours.</span></div></div>
     </aside>
 
     <main class="main-panel">
@@ -66,6 +73,13 @@
       <div class="document-toolbar"><div class="segmented view-switch" role="group" aria-label="Document view"><button id="read-mode" class="active"><svg><use href="#i-book"/></svg>Read</button><button id="edit-mode" title="Edit source and preview (Ctrl+E)"><svg><use href="#i-edit"/></svg>Edit &amp; Preview</button></div><span id="save-status" class="save-status" aria-live="polite">Saved</span><div class="save-actions"><button id="save-as-button" class="secondary-button" title="Save As (Ctrl+Shift+S)">Save As…</button><button id="save-button" class="save-button" title="Save (Ctrl+S)"><svg><use href="#i-save"/></svg>Save</button></div></div>
       <div class="reading-toolbar"><div class="reading-label"><span class="status-dot"></span><span id="mode-label">Reading mode</span></div><div class="reading-controls"><span id="direction-label" class="control-label">Text direction</span><div class="segmented" role="group" aria-label="Text direction"><button data-direction="smart" class="active" title="Detect direction for each block">Smart</button><button data-direction="rtl" title="Right-to-left text">RTL</button><button data-direction="ltr" title="Left-to-right text">LTR</button></div><span class="toolbar-divider"></span><div class="appearance-anchor"><button id="appearance-button" class="appearance-button" aria-expanded="false"><svg><use href="#i-text"/></svg>Appearance</button><div id="appearance-panel" class="appearance-panel" hidden><div class="popover-heading">Make yourself comfortable</div><label for="font-size">Font size <output id="font-value">17</output></label><input id="font-size" type="range" min="14" max="24" value="17"><label for="line-height">Line spacing <output id="line-value">2</output></label><input id="line-height" type="range" min="1.6" max="2.6" step="0.1" value="2"><label class="checkbox-label"><input id="wide-page" type="checkbox">Wider page</label><button id="reset-appearance" class="text-button">Reset appearance</button></div></div></div></div>
 
+      <div class="memory-toolbar" aria-label="Reading marks and notes">
+        <button id="star-document" title="Star this document" aria-pressed="false"><svg><use href="#i-star"/></svg><span>Star document</span></button>
+        <button id="add-mark" title="Add a reading mark (Ctrl+M)"><svg><use href="#i-mark"/></svg>Add mark</button>
+        <button id="add-note" title="Add a note (Ctrl+Shift+M)"><svg><use href="#i-note"/></svg>Add note</button>
+        <div class="annotations-anchor"><button id="annotations-button" aria-expanded="false" aria-controls="annotations-panel">Marks &amp; Notes <span id="annotation-count">0</span></button><section id="annotations-panel" class="annotations-panel" aria-label="Document marks and notes" hidden><h3>Marks &amp; Notes</h3><div id="annotation-list"></div></section></div>
+        <button id="resume-reading" title="Go to your last visited mark or note">Resume</button><span id="memory-status" class="memory-status" role="status"></span>
+      </div>
       <div id="document-workspace" class="document-workspace">
       <section id="editor-pane" class="editor-pane" aria-label="Source editor" hidden><div class="editor-heading"><span id="editor-name">SOURCE</span><label>Direction <select id="editor-direction" aria-label="Editor text direction"><option value="auto">Auto</option><option value="ltr">LTR</option><option value="rtl">RTL</option></select></label></div><div id="format-toolbar" class="format-toolbar" role="toolbar" aria-label="Text formatting">
         <button data-format="bold" title="Bold (Ctrl+B)" aria-label="Bold"><strong>B</strong></button>
@@ -89,7 +103,7 @@
       </div><div id="editor-container" class="editor-container"></div><div class="editor-footer"><span id="cursor-position">Ln 1, Col 1</span><span id="preview-status" role="status">Live preview</span></div></section>
       <div id="reading-scroll" class="reading-scroll"><div class="paper-topline"><span><svg><use href="#i-book"/></svg>A quiet place for your words.</span><span id="reading-time">—</span></div><div id="empty-state" class="empty-state" hidden><img src="icon.svg" alt="" width="72" height="72"><h1>A new page. A fresh start.</h1><p>Open a Markdown or HTML file.<br>Settle in. Khana takes care of the rest.</p><button id="empty-open" class="open-button">Open file</button></div><article id="document" class="document" dir="rtl" aria-label="Document content" tabindex="0"></article><div id="paper-end" class="paper-end"><span></span><svg><use href="#i-book"/></svg><span></span></div></div>
       </div>
-      <footer class="statusbar"><div><span id="word-count">0 words</span><span class="status-separator">·</span><span id="encoding" dir="ltr">UTF-8</span><span class="status-separator">·</span><span id="document-format">Markdown</span><span class="status-separator">·</span><span id="direction-status">Smart direction is on</span></div><div><span id="progress-label">0% read</span><div class="progress-track"><span id="progress-bar"></span></div></div></footer>
+      <footer class="statusbar"><div><span id="word-count">0 words</span><span class="status-separator">·</span><span id="encoding" dir="ltr">UTF-8</span><span class="status-separator">·</span><span id="document-format">Markdown</span><span class="status-separator">·</span><span id="direction-status">Smart direction is on</span></div><span class="developer-credit" dir="ltr">© 2026 · Development by Sadeq Kiomarsi</span><div><span id="progress-label">0% read</span><div class="progress-track"><span id="progress-bar"></span></div></div></footer>
     </main>
   </div>
   <dialog id="link-dialog" class="link-dialog" aria-labelledby="link-dialog-title">
@@ -119,6 +133,14 @@
       <div class="dialog-actions"><button id="flow-cancel" class="secondary-button" type="button">Cancel</button><button id="flow-insert" class="save-button" type="submit">Insert flowchart</button></div>
     </form>
   </dialog>
+  <dialog id="annotation-dialog" class="link-dialog annotation-dialog" aria-labelledby="annotation-dialog-title"><form id="annotation-form" method="dialog">
+    <h2 id="annotation-dialog-title">Add mark</h2><p>Keep a place in this document. Your source file stays unchanged.</p>
+    <div id="annotation-context" class="annotation-context" dir="auto"></div>
+    <label for="annotation-name">Name</label><input id="annotation-name" maxlength="160" required dir="auto">
+    <div id="annotation-body-group"><label for="annotation-body">Note</label><textarea id="annotation-body" maxlength="10000" dir="auto"></textarea></div>
+    <p id="annotation-error" class="link-error" role="alert" hidden></p>
+    <div class="dialog-actions"><button id="annotation-cancel" class="secondary-button" type="button">Cancel</button><button id="annotation-save" class="save-button" type="submit">Save mark</button></div>
+  </form></dialog>
   <div id="loading" class="loading" role="status" hidden><span class="spinner"></span>Opening document…</div>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <div class="drop-overlay"><div><svg><use href="#i-file"/></svg><h2>Drop your document here</h2><p>Make room for a little reading.</p></div></div>

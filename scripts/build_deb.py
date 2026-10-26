@@ -108,7 +108,7 @@ def main():
             digest.update(chunk)
     (destination / (package.name + '.sha256')).write_text(f'{digest.hexdigest()}  {package.name}\n', encoding='utf-8')
     (destination / 'INSTALL.txt').write_text(
-        'KHANA 0.3 — UBUNTU 26.04 (64-BIT)\n\n'
+        f'KHANA {VERSION} — UBUNTU 26.04 (64-BIT)\n\n'
         'Install this package with the system package installer, or run:\n'
         f'  sudo apt install ./'+package.name+'\n\n'
         'Installation needs your Ubuntu administrator password.\n'
@@ -118,7 +118,8 @@ def main():
         'No Git repository or Python installation is required.\n\n'
         'Remove the installed app: sudo apt remove khana\n'
         'Preferences and documents are kept when the package is removed.\n'
-        'Preferences: ~/.config/Khana/Khana/settings.ini\n', encoding='utf-8')
+        'Preferences: ~/.config/Khana/Khana/settings.ini\n'
+        'Library, stars, marks and notes: ~/.config/Khana/Khana/library.sqlite3\n', encoding='utf-8')
     print(f'Installer: {package}', flush=True)
     return 0
 

@@ -2,83 +2,161 @@
 
 A local desktop reader and source editor for mixed Persian and English documents. Create, open, edit, and save Markdown or HTML with a live preview. Each paragraph is displayed in its own direction. The application interface is English; document content keeps its original language.
 
+## Installation
+
+| Method | Requirements | Desktop integration |
+| --- | --- | --- |
+| [Ubuntu installer](#install-on-ubuntu) | Ubuntu 26.04, x86_64 / amd64 | Application search, logo, dock pinning, and Open With |
+| [Run from source](#run-from-source) | Python 3.10–3.15 and a graphical desktop | Run from a terminal or IDE |
+| [Portable executable](#portable-desktop-app) | Ubuntu 26.04, x86_64 / amd64 | Run the executable directly |
+
+The verified environment is Ubuntu 26.04 x86_64 with Python 3.14. Windows source commands are provided below, but a Windows build has not been tested or published. The Linux binaries are not intended for Windows, macOS, ARM, or older Ubuntu versions.
+
+**Downloads:** check [GitHub Releases](https://github.com/mehmed18q/markdown_tool/releases) for attached installers. If there is no `.deb` asset, [run from source](#run-from-source) or [build the installer](#build-the-ubuntu-installer). The `dist/`, `build/`, and `.venv/` directories are generated locally and are not included when cloning the repository or downloading its source ZIP.
+
 ## Install on Ubuntu
 
-Use **[khana_0.3.0-1_amd64.deb](dist/khana_0.3.0-1_amd64.deb)** for normal desktop integration on **Ubuntu 26.04 x86_64**. This package installs the name **Khana**, the book logo in multiple sizes, and a system application entry for search, the dock, and Open With. It includes Python, Qt, fonts, and offline diagrams; a Git repository and a separate Python installation are not required.
+The `.deb` package includes Python, Qt WebEngine, fonts, and the offline diagram renderer. You do not need to clone the project or install Python separately.
 
-Install using the system package installer, or from this project folder:
+1. Open [Releases](https://github.com/mehmed18q/markdown_tool/releases) and expand the release's **Assets**.
+2. Download the `.deb` file and its matching `.deb.sha256` file. For version 0.4.0 these are `khana_0.4.0-1_amd64.deb` and `khana_0.4.0-1_amd64.deb.sha256`.
+3. Open a terminal in the download folder and run the following commands. Use the downloaded filenames if the version differs.
 
 ```bash
-sudo apt install ./dist/khana_0.3.0-1_amd64.deb
+sha256sum -c khana_0.4.0-1_amd64.deb.sha256
+sudo apt install ./khana_0.4.0-1_amd64.deb
 ```
 
-Installation requires your Ubuntu administrator password. Close the old portable window, search for **Khana** in **Show Applications**, and launch the installed entry. Right-click its icon and select **Pin to Dash** / **Add to Favorites**. The internal ID `io.khana.Khana` stays consistent between Qt, Wayland, the desktop file, and the icon theme; the displayed name is **Khana**.
+The checksum command should report **OK**. Installation asks for your Ubuntu administrator password. You can also open the `.deb` with your system's package installer.
 
-The package installs into `/opt/khana`, provides `/usr/bin/khana`, and registers `/usr/share/applications/io.khana.Khana.desktop` with icons under `/usr/share/icons/hicolor`. Standard system package triggers update the desktop and icon caches. It does not replace your default HTML/Markdown application or modify your favorites automatically.
-
-To uninstall, run `sudo apt remove khana`. Your documents and settings are retained; preferences stay in `~/.config/Khana/Khana/settings.ini` (or beneath `XDG_CONFIG_HOME`). Install a newer `.deb` with the same command to upgrade. Older Ubuntu versions and other CPU architectures require their own builds.
-
-To rebuild the installer:
+After installation, close any old portable Khana window, search for **Khana** in **Show Applications**, and launch it. Right-click its icon to choose **Pin to Dash** / **Add to Favorites**. You can also start it from a terminal:
 
 ```bash
-.venv/bin/python -m pip install -r requirements-build.txt
-.venv/bin/python scripts/build_deb.py
+khana
+khana /path/to/document.md /path/to/page.html
 ```
 
-This rebuilds the unpacked runtime and packages it with the desktop entry and SVG/PNG logo. The build needs `curl`, `dpkg-deb`, and `desktop-file-validate`. The installed runtime starts directly from its installed directory, without extracting the single-file runtime on every launch.
-
-## Portable desktop app
-
-The built Linux application is **[dist/Khana](dist/Khana)**. Double-click it to start; Python, pip, and the source project are not needed. The executable contains the interface, fonts, offline Mermaid renderer, sample documents, Python, and Qt WebEngine. It starts fullscreen; press **F11** to switch to a regular window. Allow a few seconds at startup for the embedded runtime to unpack.
-
-This build targets **Ubuntu 26.04, Linux x86_64**. It is not a Windows executable and compatibility with older Linux distributions has not been verified. You can move the single `Khana` file to another folder. Its settings live in `~/.config/Khana/Khana/settings.ini` (or beneath `XDG_CONFIG_HOME`), independently of the executable and its temporary resources.
-
-The portable executable and its optional `dist/io.khana.Khana.desktop` launcher do not register an installed app. Use the `.deb` package above for application search and reliable dock integration. The portable launcher references the current build folder; keep it beside `dist/khana.svg`, or update its `Exec` and `Icon` entries if you move the app. `dist/SHA256SUMS` contains the portable executable's checksum.
-
-To rebuild on Ubuntu 26.04 x86_64 with `curl` and `dpkg-deb` installed:
+To upgrade, download the newer `.deb` and install it with the same `sudo apt install ./filename.deb` command. To uninstall:
 
 ```bash
-.venv/bin/python -m pip install -r requirements-build.txt
-.venv/bin/python scripts/build_linux.py
+sudo apt remove khana
 ```
 
-The build downloads eight small X11 support libraries from the Ubuntu archive into `build/linux-libs`, verifies their pinned hashes, and bundles them without installing system packages. Subsequent builds reuse the downloads. The PyInstaller configuration is in `packaging/khana.spec`; `--onedir` builds an unpacked verification bundle in `build/onedir/Khana`. Third-party license notices are included with the embedded resources.
+Your documents and preferences are retained on removal. Installed and portable builds store preferences in `~/.config/Khana/Khana/settings.ini` (or beneath `XDG_CONFIG_HOME`). The package does not change your default HTML/Markdown application.
 
-To verify the actual executable on a graphical desktop:
+## Run from source
+
+An internet connection is needed to download dependencies; reading and editing work offline afterward. Run the following commands as your normal desktop user.
+
+### Ubuntu
+
+On Ubuntu 26.04, install Python, Git, and the desktop libraries needed by Qt:
 
 ```bash
-.venv/bin/python tests/bundle_smoke.py dist/Khana
+sudo apt update
+sudo apt install git python3 python3-venv python3-pip \
+  libegl1 libgl1 libnss3 libasound2t64 \
+  libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+  libxcb-render-util0 libxcb-xkb1 libxkbcommon-x11-0
 ```
 
-This launches the packaged app outside the project with temporary preferences and documents, checks offline rendering, builders, HTML, saving, and settings across restarts, and saves a screenshot in `artifacts/`. A local DevTools endpoint is enabled only in that test process.
-
-## Run
-
-Requires Python 3.10 or newer and a graphical desktop session.
+Then clone the repository and create a virtual environment:
 
 ```bash
+git clone https://github.com/mehmed18q/markdown_tool.git
+cd markdown_tool
 python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python main.py
 ```
 
-The dependencies are already installed in this workspace's `.venv`. In PyCharm, select this virtual environment and run `main.py`.
+Other Linux distributions need their corresponding Python and Qt runtime packages. The application requires a graphical desktop session.
 
-On Windows:
+### Windows (source only)
+
+Install a supported 64-bit Python version and Git first. In PowerShell:
 
 ```powershell
+git clone https://github.com/mehmed18q/markdown_tool.git
+cd markdown_tool
 py -m venv .venv
-.venv\Scripts\python -m pip install -r requirements.txt
-.venv\Scripts\python main.py
+.venv\Scripts\python.exe -m pip install --upgrade pip
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe main.py
 ```
 
-You can also pass one or more files at startup:
+No activation script or PowerShell execution-policy change is needed because these commands call the virtual environment's Python directly. If you do not use Git, choose **Code → Download ZIP** on the [repository page](https://github.com/mehmed18q/markdown_tool), extract it, open a terminal in the extracted folder, and start with the virtual-environment step.
+
+### First launch
+
+Khana starts fullscreen with a sample document. Press **F11**, or click the F11 button, to return to a regular window. Click **Open file** to read an existing document or **New document** to start writing. Use **Edit & Preview** for source editing and live preview; **Save** and **Save As…** write your changes to disk.
+
+You can pass files at startup when running from source:
 
 ```bash
 .venv/bin/python main.py examples/welcome.md examples/mixed-content.html
 ```
 
-The window starts fullscreen. Press **F11**, or click the F11 button, to return to a regular window. The top-right close button exits the application.
+For PyCharm or another IDE, select the project's `.venv` interpreter and run `main.py`. Source runs store preferences in the project's `.local/settings.ini`.
+
+## Build the Ubuntu installer
+
+Build on **Ubuntu 26.04 x86_64**. First follow the [Ubuntu source setup](#ubuntu) through dependency installation. From the cloned project folder:
+
+```bash
+sudo apt install curl dpkg desktop-file-utils
+.venv/bin/python -m pip install -r requirements-build.txt
+.venv/bin/python scripts/build_deb.py
+sudo apt install ./dist/khana_0.4.0-1_amd64.deb
+```
+
+The build produces `dist/khana_0.4.0-1_amd64.deb` and its `.deb.sha256` checksum. Build as your normal user; only the final installation command needs administrator access.
+
+The installer registers `/usr/bin/khana`, `/usr/share/applications/io.khana.Khana.desktop`, and the SVG/PNG logo under the system icon theme. Its runtime is installed in `/opt/khana`. The application ID, desktop entry, and icon name match so the desktop displays **Khana** and associates its running window with the launcher.
+
+The build downloads eight small X11 libraries from the Ubuntu archive, verifies their pinned hashes, and stages them in `build/linux-libs` without installing them into the build machine's system directories. Subsequent builds reuse the downloads. PyInstaller settings are in `packaging/khana.spec`; third-party license notices are included with the runtime.
+
+## Portable desktop app
+
+If a `Khana` executable is attached to [Releases](https://github.com/mehmed18q/markdown_tool/releases), download it with `SHA256SUMS`. From the download folder:
+
+```bash
+sha256sum -c SHA256SUMS
+chmod +x Khana
+./Khana
+```
+
+To build it yourself, complete the build prerequisites above and run:
+
+```bash
+.venv/bin/python scripts/build_linux.py
+./dist/Khana
+```
+
+The single executable includes Python and the app's resources and can be moved to another folder. Startup may take a few seconds while its runtime unpacks. It does not register an installed application: use the `.deb` for application search and dock pinning. The optional generated `io.khana.Khana.desktop` launcher refers to the build folder and must be updated if moved.
+
+## Troubleshooting installation
+
+- **No installer in Releases / no `dist` folder:** use the source setup or build the installer locally. GitHub's **Source code** archives contain source files, not a built application.
+- **`python3 -m venv` fails on Ubuntu:** install `python3-venv`, then rerun the environment-creation command.
+- **Qt reports a missing `xcb` plugin dependency:** install the Qt runtime libraries listed in the Ubuntu source instructions. Run from a graphical desktop rather than a terminal-only server session.
+- **The dock shows `io.khana.Khana`, has no icon, or cannot pin the app:** install the `.deb`, close the portable/source window, and start **Khana** from the application list.
+- **The `.deb` reports a `libc6` version or architecture mismatch:** it targets Ubuntu 26.04 amd64. Use an environment compatible with that build, or try the source setup with dependencies supported by your system.
+- **The whole screen is occupied:** press **F11** to leave fullscreen.
+
+## Publishing downloads (maintainers)
+
+Build outputs are excluded by `.gitignore`; pushing the source does not publish an installer. After building and verifying a version, create a [GitHub Release](https://github.com/mehmed18q/markdown_tool/releases) for that version and attach:
+
+| Asset | Purpose |
+| --- | --- |
+| `dist/khana_0.4.0-1_amd64.deb` | Ubuntu installer |
+| `dist/khana_0.4.0-1_amd64.deb.sha256` | Installer checksum |
+| `dist/Khana` (optional) | Portable Linux executable |
+| `dist/SHA256SUMS` (with the portable executable) | Portable executable checksum |
+
+These names describe version 0.4.0. Update versioned examples when publishing a newer package. Build and test each asset from the same release source before uploading it.
 
 ## Reading
 
@@ -88,8 +166,19 @@ The window starts fullscreen. Press **F11**, or click the F11 button, to return 
 - Code blocks remain left to right. English phrases, inline code, paths, and URLs are isolated from surrounding Persian text. English phrases spanning emphasis or links are kept together.
 - **RTL** and **LTR** override the document direction. Hover beside a paragraph or heading to cycle that individual block through RTL, LTR, and automatic direction. These overrides last while the file remains open and reset when it is reloaded.
 - Search highlights text across inline formatting. Use Enter / Shift+Enter or the arrow buttons to move through matches. Up to 2,000 matches are highlighted.
-- Adjust font size, line spacing, page width, light/dark theme, or focus mode. Preferences are stored locally in `.local/settings.ini`.
+- Adjust font size, line spacing, page width, light/dark theme, or focus mode. Preferences stay on your device: installed/portable builds use `~/.config/Khana/Khana/settings.ini`, while source runs use `.local/settings.ini` in the project.
 - **Reload** reads a file again after changes in another editor. If you have local edits, choose Save, Discard, or Cancel before reloading.
+
+## Library, reading marks, and notes
+
+- Opened files stay in **LIBRARY** after closing their tabs or restarting Khana. The last open saved documents reopen at startup. Missing files stay listed as **File not found** so their annotations are retained.
+- Use **Star document**, or the star beside a library entry, to keep favorites in the **Starred** filter. Click an entry to reopen it. Close its tab first to remove it from the library; removal also clears its stars, marks, and notes, but keeps the source file.
+- Each document supports multiple named marks and notes. Hover beside a paragraph and choose **Add a mark here** or **Add a note here**. You can also select text in the reading view and click **Add mark** (Ctrl+M) or **Add note** (Ctrl+Shift+M). Without a selection, these toolbar actions use the top visible reading block.
+- **Marks & Notes** lists each saved location and note. Click its name to jump there; use **Edit** to rename a mark or update a note, and **Delete** to remove either. Inline badges identify annotated blocks in the document.
+- **Resume** returns to the most recently added or visited mark/note, also used when reopening the file. Marks match text and neighboring blocks, so inserting content above an unchanged paragraph keeps its location. If the original text has changed or disappeared, navigation uses an approximate location and shows a warning.
+- Save a new document and any pending source changes before adding annotations. Notes and marks save immediately and independently of the document's **Save** button; the source file is unchanged. **Save As…** to a new path copies its stars and annotations, and the two documents can then be annotated independently.
+
+Reading information is local to this device, in `library.sqlite3` beside `settings.ini`: installed/portable builds use `~/.config/Khana/Khana/`, and source runs use the project's `.local/` folder. Back up that database with the app closed to preserve the library. Moving a source file outside Khana does not automatically update its library path. Unsaved drafts are not restored after closing the app.
 
 ## Create, edit, and save
 
@@ -122,6 +211,8 @@ The window starts fullscreen. Press **F11**, or click the F11 button, to return 
 | Ctrl+Z / Ctrl+Shift+Z | Undo / redo source editing |
 | Ctrl+F | Find in the current document |
 | Ctrl+R | Reload from disk |
+| Ctrl+M | Add a reading mark |
+| Ctrl+Shift+M | Add a note |
 | Ctrl+Shift+F | Toggle focus mode |
 | F11 | Toggle fullscreen |
 | Escape | Close appearance/search, or leave focus mode |
@@ -167,6 +258,8 @@ Files must use UTF-8 (with or without BOM) or UTF-16 with BOM and be no larger t
 | `reader/desktop.py` | Qt window, file dialogs, document sessions, preview workers, save/close prompts |
 | `reader/documents.py` | Document loading, Markdown rendering, HTML sanitization |
 | `reader/editing.py` | Source buffers, encoding preservation, conflict detection, atomic writes |
+| `reader/library.py` | Persistent document library, stars, reading marks, notes, and session restoration |
+| `reader/web/annotations.js`, `reader/web/library-ui.js`, `reader/web/library.css` | Text anchors and library/annotation controls |
 | `reader/web/bidi.js` | Direction detection and inline isolation |
 | `reader/web/app.js` | Reading interface and document state |
 | `reader/web/formatting.js` | Selection transformations for formatting and links |
@@ -185,12 +278,23 @@ The renderer is shared by the reading view and live preview. Source buffers stay
 node --test tests/bidi.test.cjs
 node --test tests/formatting.test.cjs
 node --test tests/insertions.test.cjs
+node --test tests/annotations.test.cjs
 .venv/bin/python tests/desktop_smoke.py
 .venv/bin/python tests/editor_smoke.py
 .venv/bin/python tests/builders_smoke.py
+.venv/bin/python tests/library_smoke.py
 ```
 
-The last three checks require a graphical desktop and exercise the actual Qt/WebEngine window, reading, editing, live preview, saving, save-as, external changes, save/discard/cancel behavior, table/flowchart builders, and diagram rendering. They use temporary files and save screenshots in `artifacts/`. Node is only needed for JavaScript unit tests, not to run the app.
+The last four checks require a graphical desktop and exercise the actual Qt/WebEngine window, reading, editing, live preview, saving, save-as, external changes, save/discard/cancel behavior, table/flowchart builders, diagram rendering, and annotation persistence across restarts. They use temporary files and save screenshots in `artifacts/`. Node is only needed for JavaScript unit tests, not to run the app.
+
+After building, verify the packaged application on a graphical desktop:
+
+```bash
+.venv/bin/python tests/bundle_smoke.py dist/Khana
+.venv/bin/python tests/deb_smoke.py
+```
+
+The first command requires a portable build; the second requires the `.deb`. The Debian check also uses Ubuntu's system Python with PyGObject/GTK 4, plus `xprop` for X11 checks. These checks use temporary documents and configuration, and test the package without installing it into your system. A local DevTools endpoint is enabled only in the test process.
 
 The bundled Noto Sans Arabic font's license is included in `reader/web/fonts/LICENSE.txt`. PySide6/Qt and the other dependencies retain their respective upstream licenses.
 

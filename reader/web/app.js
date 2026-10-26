@@ -10,6 +10,8 @@
   const article = $('document'), scroller = $('reading-scroll');
   let results = [], resultIndex = -1;
   let linkContext = null;
+  const reading = ReaderLibrary.create({ article, scroller, current: () => documents.get(activeId),
+    documents, sourceOf, native: () => bridge, toast });
 
   function toast(message, error = false) {
     clearTimeout(toastTimer);
@@ -91,7 +93,7 @@
       activeId = null;
       const remaining = [...documents.keys()];
       showDocument(remaining[Math.min(index, remaining.length - 1)] || null);
-    } else renderFiles();
+    } else { renderFiles(); reading.refresh(); }
   }
 
   function renderOutline(doc) {
@@ -194,6 +196,7 @@
       if (!doc.html.trim()) article.innerHTML = '<p class="empty-document">This file is empty.</p>';
       enhanceDocument();
     }
+    reading.mount();
     renderOutline(doc); preferences(false);
     scroller.scrollTo({ top, behavior: 'instant' });
     if (!$('search-panel').hidden) search();
@@ -209,6 +212,8 @@
     updateCaption(); renderFiles();
     const target = refresh ? Math.min(positions.get(id) || 0, scroller.scrollHeight) : positions.get(id) || 0;
     scroller.scrollTo({ top: target, behavior: 'instant' });
+    reading.changed(!positions.has(id));
+    if (id) bridge?.activateDocument(id);
     if (!$('search-panel').hidden) search();
     requestAnimationFrame(updateProgress);
   }
@@ -247,6 +252,7 @@
     $('document-format').textContent = doc?.format || '—';
     $('encoding').textContent = doc?.encoding || '—';
     bridge?.setDocumentTitle(doc ? `${doc.dirty ? '● ' : ''}${doc.name}` : '');
+    reading.refresh();
   }
 
   function ensureEditor(doc) {
@@ -485,6 +491,10 @@
     if (name === 'save-as') saveDocument(true);
     if (name === 'close' && activeId) closeDocument(activeId);
     if (name === 'edit') setEditMode(!documents.get(activeId)?.editMode);
+    if (name === 'empty') showDocument(null);
+    if (name === 'add-mark') reading.add('mark');
+    if (name === 'add-note') reading.add('note');
+    if (name === 'resume-annotation') reading.resume();
     if (name === 'search') openSearch();
     if (name === 'focus') focusMode();
     if (name === 'reload' && activeId) bridge?.reloadFile(activeId, sourceOf(documents.get(activeId)));
@@ -578,8 +588,8 @@
     if ((event.ctrlKey || event.metaKey) && !event.altKey) {
       const key = event.code || event.key.toLowerCase();
       const name = event.shiftKey
-        ? ({ KeyS: 'save-as', s: 'save-as', KeyF: 'focus', f: 'focus' })[key]
-        : ({ KeyO: 'open', o: 'open', KeyN: 'new', n: 'new', KeyS: 'save', s: 'save', KeyW: 'close', w: 'close', KeyE: 'edit', e: 'edit', KeyF: 'search', f: 'search', KeyR: 'reload', r: 'reload' })[key];
+        ? ({ KeyS: 'save-as', s: 'save-as', KeyF: 'focus', f: 'focus', KeyM: 'add-note', m: 'add-note' })[key]
+        : ({ KeyO: 'open', o: 'open', KeyN: 'new', n: 'new', KeyS: 'save', s: 'save', KeyW: 'close', w: 'close', KeyE: 'edit', e: 'edit', KeyF: 'search', f: 'search', KeyR: 'reload', r: 'reload', KeyM: 'add-mark', m: 'add-mark' })[key];
       if (name) { event.preventDefault(); command(name); return; }
     }
     if (document.querySelector('dialog[open]')) return;
@@ -596,7 +606,7 @@
     cancelAnimationFrame(resizeFrame);
     // Resizing a graph changes article height. Do writes on the next frame
     // instead of feeding layout changes back into the observer delivery.
-    resizeFrame = requestAnimationFrame(() => ReaderDiagrams.resize(article));
+    resizeFrame = requestAnimationFrame(() => { ReaderDiagrams.resize(article); reading.resize(); });
   }).observe(article);
   window.addEventListener('resize', updateProgress);
   window.readerApp = { receiveDocument, showDocument, closeDocument, preferences, search, command, setEditMode,
@@ -623,6 +633,7 @@
       bridge.settingsLoaded.connect(raw => {
         try { settings = { ...defaults, ...JSON.parse(raw) }; preferences(false); } catch { preferences(false); }
       });
+      bridge.libraryChanged.connect(raw => reading.receive(raw));
       bridge.command.connect(command);
       bridge.ready();
     });

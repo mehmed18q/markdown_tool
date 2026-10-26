@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 from pathlib import Path
 import sys
 from urllib.parse import unquote, urlparse
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QMainWindow, QMessageBo
 from reader import APP_ID, APP_NAME, VERSION
 from reader.documents import Document, EXTENSIONS, IMAGE_EXTENSIONS, load_document, render_source
 from reader.editing import EditSession, fingerprint
+from reader.library import ReadingLibrary
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / "reader" / "web"
@@ -116,6 +118,7 @@ class Bridge(QObject):
     errorOccurred = Signal(str)
     busyChanged = Signal(bool)
     settingsLoaded = Signal(str)
+    libraryChanged = Signal(str)
     command = Signal(str)
 
     def __init__(self, window, initial_paths, settings_path=None):
@@ -123,6 +126,15 @@ class Bridge(QObject):
         self.window = window
         self.initial_paths = initial_paths
         self.settings = QSettings(str(settings_path or default_settings_path()), QSettings.Format.IniFormat)
+        self.library_error = None
+        try:
+            self.library = ReadingLibrary(Path(self.settings.fileName()).with_name('library.sqlite3'))
+        except (OSError, sqlite3.Error) as error:
+            self.library = None
+            self.library_error = str(error)
+        self.active_id = None
+        self.restoring = False
+        self.restore_active = None
         self.opened: set[Path] = set()
         self.sessions: dict[str, EditSession] = {}
         self.preview_tasks: dict[str, PreviewTask] = {}
@@ -139,10 +151,130 @@ class Bridge(QObject):
             return
         self.initialized = True
         self.settingsLoaded.emit(str(self.settings.value("reading", "{}")))
-        if self.initial_paths:
-            self.load_paths(self.initial_paths)
-        else:
+        entries = self._emit_library()
+        if self.library_error:
+            self.errorOccurred.emit(f'Reading library unavailable: {self.library_error}')
+        workspace = {'paths': [], 'active': None}
+        if self.library:
+            try:
+                workspace = self.library.workspace()
+            except (sqlite3.Error, ValueError) as error:
+                self.errorOccurred.emit(f'Could not restore the reading session: {error}')
+        paths = [Path(path) for path in workspace['paths'] if Path(path).is_file()]
+        paths += [Path(path).resolve() for path in self.initial_paths if Path(path).resolve() not in paths]
+        self.restore_active = str(Path(self.initial_paths[-1]).resolve()) if self.initial_paths else workspace['active']
+        if paths:
+            self.restoring = True
+            self.load_paths(paths)
+        elif entries == []:
             self.load_paths([SAMPLE], sample=True)
+        else:
+            self.command.emit('empty')
+
+    def _emit_library(self):
+        try:
+            entries = self.library.entries() if self.library else []
+            for entry in entries:
+                entry['missing'] = not Path(entry['path']).is_file()
+            self.libraryChanged.emit(json.dumps({'available': self.library is not None, 'entries': entries}, ensure_ascii=False))
+            return entries
+        except (sqlite3.Error, ValueError) as error:
+            self.errorOccurred.emit(f'Could not read the document library: {error}')
+
+    def _library_change(self, method, *args):
+        if not self.library:
+            return False
+        try:
+            getattr(self.library, method)(*args)
+            self._emit_library()
+            return True
+        except (sqlite3.Error, OSError, ValueError) as error:
+            self.errorOccurred.emit(f'Could not save reading information: {error}')
+            return False
+
+    def _remember_session(self):
+        if self.restoring or not self.library:
+            return
+        paths = [s.document.path for s in self.sessions.values() if s.document.path and not s.document.sample]
+        active = self.sessions.get(self.active_id)
+        active_path = active.document.path if active and active.document.path in paths else None
+        try:
+            self.library.save_workspace(paths, active_path)
+        except (sqlite3.Error, OSError) as error:
+            self.errorOccurred.emit(f'Could not remember the open documents: {error}')
+
+    def _finish_restore(self):
+        if self.restoring and not self.tasks:
+            self.restoring = False
+            self.active_id = next((s.document.id for s in self.sessions.values() if s.document.path == self.restore_active),
+                                  next(reversed(self.sessions), None))
+            if self.active_id:
+                self.documentActivated.emit(self.active_id)
+            else:
+                self.command.emit('empty')
+            self._remember_session()
+
+    @Slot(str)
+    def activateDocument(self, document_id):
+        if document_id in self.sessions and not self.restoring:
+            self.active_id = document_id
+            self._remember_session()
+
+    @Slot(str)
+    def openLibrary(self, path):
+        if not self.library:
+            return
+        try:
+            if not self.library.get(path):
+                return
+        except (sqlite3.Error, ValueError) as error:
+            self.errorOccurred.emit(f'Could not read the document library: {error}')
+            return
+        existing = next((s.document.id for s in self.sessions.values() if s.document.path == path), None)
+        self.load_paths([Path(path)])
+        if existing:
+            self.command.emit('resume-annotation')
+
+    @Slot(str, bool)
+    def starDocument(self, path, starred):
+        self._library_change('set_starred', path, starred)
+
+    @Slot(str)
+    def forgetDocument(self, path):
+        if any(s.document.path == path for s in self.sessions.values()) or path in self.tasks:
+            self.errorOccurred.emit('Close the document before removing it from the library.')
+            return
+        if self._library_change('forget', path):
+            self._remember_session()
+
+    @Slot(str, str, str, result=bool)
+    def saveAnnotation(self, document_id, source, raw):
+        session = self._sync(document_id, source)
+        if not session or not session.document.path or session.document.sample:
+            self.errorOccurred.emit('Save this document before adding marks or notes.')
+            return False
+        try:
+            item = json.loads(raw)
+            if not isinstance(item, dict):
+                raise ValueError('Invalid annotation.')
+            if not item.get('id') and session.dirty:
+                raise ValueError('Save your document changes before adding a mark or note.')
+            anchor = item.get('anchor')
+            if isinstance(anchor, dict) and not item.get('id'):
+                anchor['fingerprint'] = session.document.fingerprint
+            return self._library_change('save_annotation', session.document.path, item.get('id'),
+                                        item.get('kind'), item.get('label'), item.get('body', ''), anchor)
+        except (ValueError, TypeError) as error:
+            self.errorOccurred.emit(str(error))
+            return False
+
+    @Slot(str, str)
+    def deleteAnnotation(self, path, identifier):
+        self._library_change('delete_annotation', path, identifier)
+
+    @Slot(str, str)
+    def resumeAnnotation(self, path, identifier):
+        self._library_change('resume', path, identifier)
 
     @Slot()
     def openFiles(self):
@@ -160,7 +292,9 @@ class Bridge(QObject):
             key = str(path)
             existing = next((s.document.id for s in self.sessions.values() if s.document.path == key), None)
             if existing:
+                self.active_id = existing
                 self.documentActivated.emit(existing)
+                self._remember_session()
                 continue
             if key in self.tasks:
                 continue
@@ -178,14 +312,22 @@ class Bridge(QObject):
         if document.id in self.sessions or document.id in self.preview_tasks:
             document.id = f"{uuid4()}:{path}"
         self.sessions[document.id] = EditSession.opened(document)
+        if not document.sample:
+            self._library_change('remember', document.path, document.format)
+        if not self.restoring:
+            self.active_id = document.id
         self._refresh_folders()
         self.documentLoaded.emit(json.dumps(self.sessions[document.id].payload(), ensure_ascii=False))
+        self._finish_restore()
+        self._remember_session()
         self.busyChanged.emit(bool(self.tasks))
 
     @Slot(str, str)
     def _failed(self, path, message):
         self.tasks.pop(path, None)
         self.errorOccurred.emit(f"{Path(path).name}: {message}")
+        self._emit_library()
+        self._finish_restore()
         self.busyChanged.emit(bool(self.tasks))
 
     def _refresh_folders(self):
@@ -291,6 +433,7 @@ class Bridge(QObject):
                 self.errorOccurred.emit("That file is already open in another tab. Choose a different filename.")
                 return False
         try:
+            previous_path = doc.path if not doc.sample else None
             expected = fingerprint(target)
             same_file = str(target) == doc.path
             changed = same_file and expected != doc.fingerprint
@@ -305,7 +448,9 @@ class Bridge(QObject):
                 session.save(target, expected)
             self.settings.setValue("lastFolder", str(target.parent))
             self._refresh_folders()
+            self._library_change('remember', doc.path, doc.format, previous_path)
             self.documentSaved.emit(json.dumps(session.payload(), ensure_ascii=False))
+            self._remember_session()
             return True
         except (OSError, ValueError) as error:
             self.errorOccurred.emit(f"Could not save {target.name}: {error}. Your edits are still open.")
@@ -336,6 +481,7 @@ class Bridge(QObject):
         self.pending_previews.pop(document_id, None)
         self._refresh_folders()
         self.documentClosed.emit(document_id)
+        self._remember_session()
 
     @Slot(str)
     def confirmQuit(self, snapshots):
@@ -348,6 +494,7 @@ class Bridge(QObject):
             for session in list(self.sessions.values()):
                 if not self._confirm_changes(session):
                     return
+            self._remember_session()
             self.window.allow_close = True
             QTimer.singleShot(0, self.window.close)
         finally:
