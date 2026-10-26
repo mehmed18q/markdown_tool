@@ -1,0 +1,503 @@
+"""Native desktop window and a small, explicit bridge to the local reading UI."""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+import sys
+from urllib.parse import unquote, urlparse
+from uuid import uuid4
+
+from PySide6.QtCore import QObject, QRunnable, QSettings, QStandardPaths, QThreadPool, QTimer, Qt, QUrl, Signal, Slot
+from PySide6.QtGui import QDesktopServices, QIcon
+from PySide6.QtWebChannel import QWebChannel
+from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings, QWebEngineUrlRequestInterceptor
+from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWidgets import QApplication, QFileDialog, QMainWindow, QMessageBox
+
+from reader import APP_ID, APP_NAME, VERSION
+from reader.documents import Document, EXTENSIONS, IMAGE_EXTENSIONS, load_document, render_source
+from reader.editing import EditSession, fingerprint
+
+ROOT = Path(__file__).resolve().parent.parent
+WEB = ROOT / "reader" / "web"
+SAMPLE = ROOT / "examples" / "welcome.md"
+
+
+def default_settings_path() -> Path:
+    # A one-file executable extracts resources to a temporary, read-only-in-
+    # practice location. Preferences must survive removal of that directory.
+    if getattr(sys, "frozen", False):
+        return Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppConfigLocation)) / "settings.ini"
+    return ROOT / ".local" / "settings.ini"
+
+
+class LocalRequests(QWebEngineUrlRequestInterceptor):
+    """No remote resources; document images are limited to explicitly opened folders."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.folders: frozenset[Path] = frozenset()
+
+    def interceptRequest(self, info):
+        url = info.requestUrl()
+        if url.scheme() in {"qrc", "data"}:
+            return
+        if url.isLocalFile():
+            path = Path(url.toLocalFile()).resolve()
+            if path.is_relative_to(WEB):
+                return
+            if path.suffix.lower() in IMAGE_EXTENSIONS and any(path.is_relative_to(p) for p in self.folders):
+                return
+        info.block(True)
+
+
+class ReaderPage(QWebEnginePage):
+    def acceptNavigationRequest(self, url, navigation_type, is_main_frame):
+        if url.isLocalFile() and Path(url.toLocalFile()).resolve() == WEB / "index.html":
+            return True
+        if navigation_type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked:
+            if url.scheme() in {"https", "http", "mailto"}:
+                QDesktopServices.openUrl(url)
+        return False
+
+
+class LoadSignals(QObject):
+    finished = Signal(str, str)
+    failed = Signal(str, str)
+
+
+class LoadTask(QRunnable):
+    def __init__(self, path: Path, sample=False):
+        super().__init__()
+        self.path = path
+        self.sample = sample
+        self.signals = LoadSignals()
+
+    def run(self):
+        try:
+            document = load_document(self.path, sample=self.sample)
+            self.signals.finished.emit(str(self.path), json.dumps(document.to_dict(), ensure_ascii=False))
+        except (OSError, ValueError) as error:
+            if isinstance(error, FileNotFoundError):
+                message = "File not found. It may have been moved or deleted."
+            elif isinstance(error, PermissionError):
+                message = "You do not have permission to read this file."
+            else:
+                message = str(error)
+            self.signals.failed.emit(str(self.path), message)
+        except Exception:
+            self.signals.failed.emit(str(self.path), "This file could not be read.")
+
+
+class PreviewTask(QRunnable):
+    def __init__(self, document_id, source, document_format, folder, revision):
+        super().__init__()
+        self.document_id, self.source = document_id, source
+        self.document_format, self.folder, self.revision = document_format, folder, revision
+        self.signals = LoadSignals()
+
+    def run(self):
+        try:
+            rendered = render_source(self.source, self.document_format, self.folder)
+            self.signals.finished.emit(self.document_id, json.dumps({"id": self.document_id, "revision": self.revision, **rendered}, ensure_ascii=False))
+        except Exception as error:
+            self.signals.failed.emit(self.document_id, str(error))
+
+
+class Bridge(QObject):
+    documentLoaded = Signal(str)
+    documentSaved = Signal(str)
+    documentClosed = Signal(str)
+    documentActivated = Signal(str)
+    previewReady = Signal(str)
+    previewFailed = Signal(str, int, str)
+    errorOccurred = Signal(str)
+    busyChanged = Signal(bool)
+    settingsLoaded = Signal(str)
+    command = Signal(str)
+
+    def __init__(self, window, initial_paths, settings_path=None):
+        super().__init__(window)
+        self.window = window
+        self.initial_paths = initial_paths
+        self.settings = QSettings(str(settings_path or default_settings_path()), QSettings.Format.IniFormat)
+        self.opened: set[Path] = set()
+        self.sessions: dict[str, EditSession] = {}
+        self.preview_tasks: dict[str, PreviewTask] = {}
+        self.pending_previews: dict[str, tuple] = {}
+        self.new_count = 0
+        self.tasks: dict[str, LoadTask] = {}
+        self.pool = QThreadPool(self)
+        self.pool.setMaxThreadCount(1)
+        self.initialized = False
+
+    @Slot()
+    def ready(self):
+        if self.initialized:
+            return
+        self.initialized = True
+        self.settingsLoaded.emit(str(self.settings.value("reading", "{}")))
+        if self.initial_paths:
+            self.load_paths(self.initial_paths)
+        else:
+            self.load_paths([SAMPLE], sample=True)
+
+    @Slot()
+    def openFiles(self):
+        paths, _ = QFileDialog.getOpenFileNames(
+            self.window, "Open a document", str(self.settings.value("lastFolder", Path.home())),
+            "Documents (*.md *.MD *.markdown *.MARKDOWN *.mdown *.mkd *.txt *.html *.htm *.HTML *.HTM);;Markdown (*.md *.markdown *.mdown *.mkd);;HTML (*.html *.htm);;Text (*.txt);;All files (*)",
+        )
+        if paths:
+            self.settings.setValue("lastFolder", str(Path(paths[0]).parent))
+            self.load_paths([Path(p) for p in paths])
+
+    def load_paths(self, paths, sample=False):
+        for path in paths:
+            path = path.expanduser().resolve()
+            key = str(path)
+            existing = next((s.document.id for s in self.sessions.values() if s.document.path == key), None)
+            if existing:
+                self.documentActivated.emit(existing)
+                continue
+            if key in self.tasks:
+                continue
+            task = LoadTask(path, sample)
+            task.signals.finished.connect(self._loaded)
+            task.signals.failed.connect(self._failed)
+            self.tasks[key] = task
+            self.pool.start(task)
+        self.busyChanged.emit(bool(self.tasks))
+
+    @Slot(str, str)
+    def _loaded(self, path, payload):
+        self.tasks.pop(path, None)
+        document = Document(**json.loads(payload))
+        if document.id in self.sessions or document.id in self.preview_tasks:
+            document.id = f"{uuid4()}:{path}"
+        self.sessions[document.id] = EditSession.opened(document)
+        self._refresh_folders()
+        self.documentLoaded.emit(json.dumps(self.sessions[document.id].payload(), ensure_ascii=False))
+        self.busyChanged.emit(bool(self.tasks))
+
+    @Slot(str, str)
+    def _failed(self, path, message):
+        self.tasks.pop(path, None)
+        self.errorOccurred.emit(f"{Path(path).name}: {message}")
+        self.busyChanged.emit(bool(self.tasks))
+
+    def _refresh_folders(self):
+        self.opened = {Path(s.document.path) for s in self.sessions.values() if s.document.path}
+        self.window.requests.folders = frozenset(path.parent for path in self.opened)
+
+    def _sync(self, document_id, source=None):
+        session = self.sessions.get(document_id)
+        if session and source is not None:
+            session.document.source = source.replace("\r\n", "\n").replace("\r", "\n")
+        return session
+
+    @Slot(str)
+    def newDocument(self, document_format):
+        if document_format not in {"Markdown", "HTML"}:
+            return
+        self.new_count += 1
+        name = f"Untitled {self.new_count}.{'html' if document_format == 'HTML' else 'md'}"
+        doc = Document(id=f"untitled:{uuid4()}", name=name, path="", html="", headings=[],
+                       words=0, size=0, encoding="UTF-8", format=document_format)
+        session = EditSession.opened(doc)
+        self.sessions[doc.id] = session
+        self.documentLoaded.emit(json.dumps(session.payload()))
+
+    @Slot(str, str, int)
+    def previewDocument(self, document_id, source, revision):
+        session = self._sync(document_id, source)
+        if not session:
+            return
+        doc = session.document
+        self.pending_previews[document_id] = (doc.source, doc.format, Path(doc.path).parent if doc.path else None, revision)
+        self._start_preview(document_id)
+
+    def _start_preview(self, document_id):
+        if document_id in self.preview_tasks or document_id not in self.pending_previews:
+            return
+        source, document_format, folder, revision = self.pending_previews.pop(document_id)
+        task = PreviewTask(document_id, source, document_format, folder, revision)
+        self.preview_tasks[document_id] = task
+        task.signals.finished.connect(self._preview_finished)
+        task.signals.failed.connect(self._preview_failed)
+        self.pool.start(task)
+
+    @Slot(str, str)
+    def _preview_finished(self, document_id, payload):
+        self.preview_tasks.pop(document_id, None)
+        if document_id in self.sessions:
+            self.previewReady.emit(payload)
+            self._start_preview(document_id)
+
+    @Slot(str, str)
+    def _preview_failed(self, document_id, message):
+        task = self.preview_tasks.pop(document_id, None)
+        if document_id in self.sessions and task:
+            self.previewFailed.emit(document_id, task.revision, message)
+            self._start_preview(document_id)
+
+    def _ask(self, title, text, buttons, default):
+        box = QMessageBox(self.window)
+        box.setWindowTitle(title)
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        box.setText(text)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setStandardButtons(buttons)
+        box.setDefaultButton(default)
+        return box.exec()
+
+    def _confirm_changes(self, session):
+        if not session.dirty:
+            return True
+        choice = self._ask("Unsaved changes", f'Save changes to "{session.document.name}"?',
+                           QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+                           QMessageBox.StandardButton.Save)
+        if choice == QMessageBox.StandardButton.Save:
+            return self._save_session(session)
+        return choice == QMessageBox.StandardButton.Discard
+
+    @Slot(str, str, bool)
+    def saveDocument(self, document_id, source, save_as):
+        session = self._sync(document_id, source)
+        if session:
+            self._save_session(session, save_as)
+
+    def _save_session(self, session, save_as=False):
+        doc = session.document
+        target = Path(doc.path) if doc.path else None
+        choose_path = save_as or target is None or doc.sample
+        if choose_path:
+            initial = str(target or Path(str(self.settings.value("lastFolder", Path.home()))) / doc.name)
+            file_filter = "HTML (*.html *.htm)" if doc.format == "HTML" else "Markdown (*.md *.markdown *.mdown *.mkd);;Text (*.txt)"
+            name, selected_filter = QFileDialog.getSaveFileName(
+                self.window, "Save As", initial, file_filter, options=QFileDialog.Option.DontConfirmOverwrite)
+            if not name:
+                return False
+            target = Path(name).expanduser()
+            if not target.suffix:
+                target = target.with_suffix(".html" if doc.format == "HTML" else ".txt" if selected_filter.startswith("Text") else ".md")
+            target = target.resolve()
+            if str(target) in self.tasks:
+                self.errorOccurred.emit("That file is still being opened. Please wait, then save again.")
+                return False
+            if any(s is not session and s.document.path == str(target) for s in self.sessions.values()):
+                self.errorOccurred.emit("That file is already open in another tab. Choose a different filename.")
+                return False
+        try:
+            expected = fingerprint(target)
+            same_file = str(target) == doc.path
+            changed = same_file and expected != doc.fingerprint
+            replacing = not same_file and expected is not None
+            if changed or replacing:
+                message = ("The file has changed on disk since it was opened.\n\n" if changed else "A file already exists at this location.\n\n")
+                choice = self._ask("Replace file?", message + f'Replace "{target.name}" with your current source?',
+                                   QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Cancel)
+                if choice != QMessageBox.StandardButton.Yes:
+                    return False
+            if session.dirty or choose_path or changed:
+                session.save(target, expected)
+            self.settings.setValue("lastFolder", str(target.parent))
+            self._refresh_folders()
+            self.documentSaved.emit(json.dumps(session.payload(), ensure_ascii=False))
+            return True
+        except (OSError, ValueError) as error:
+            self.errorOccurred.emit(f"Could not save {target.name}: {error}. Your edits are still open.")
+            return False
+
+    @Slot(str)
+    @Slot(str, str)
+    def reloadFile(self, document_id, source=None):
+        session = self._sync(document_id, source)
+        if not session or not session.document.path or not self._confirm_changes(session):
+            return
+        try:
+            doc = load_document(Path(session.document.path), sample=session.document.sample)
+            doc.id = document_id
+            self.sessions[document_id] = EditSession.opened(doc)
+            self.pending_previews.pop(document_id, None)
+            self.documentLoaded.emit(json.dumps(self.sessions[document_id].payload(), ensure_ascii=False))
+        except (OSError, ValueError) as error:
+            self.errorOccurred.emit(f"Could not reload the file: {error}")
+
+    @Slot(str)
+    @Slot(str, str)
+    def closeFile(self, document_id, source=None):
+        session = self._sync(document_id, source)
+        if not session or not self._confirm_changes(session):
+            return
+        del self.sessions[document_id]
+        self.pending_previews.pop(document_id, None)
+        self._refresh_folders()
+        self.documentClosed.emit(document_id)
+
+    @Slot(str)
+    def confirmQuit(self, snapshots):
+        try:
+            values = json.loads(snapshots)
+            if not isinstance(values, dict) or any(not isinstance(value, str) for value in values.values()):
+                raise ValueError("Invalid editor state")
+            for document_id, source in values.items():
+                self._sync(document_id, source)
+            for session in list(self.sessions.values()):
+                if not self._confirm_changes(session):
+                    return
+            self.window.allow_close = True
+            QTimer.singleShot(0, self.window.close)
+        finally:
+            self.window.close_pending = False
+
+    @Slot()
+    def openSample(self):
+        self.load_paths([SAMPLE], sample=True)
+
+    @Slot(str)
+    def saveSettings(self, raw):
+        try:
+            values = json.loads(raw)
+            if not isinstance(values, dict):
+                return
+            cleaned = {
+                "theme": values.get("theme") if values.get("theme") in {"light", "dark"} else "light",
+                "direction": values.get("direction") if values.get("direction") in {"smart", "rtl", "ltr"} else "smart",
+                "fontSize": max(14, min(24, int(values.get("fontSize", 17)))),
+                "lineHeight": max(1.6, min(2.6, float(values.get("lineHeight", 2)))),
+                "wide": bool(values.get("wide", False)),
+            }
+        except (ValueError, TypeError):
+            return
+        self.settings.setValue("reading", json.dumps(cleaned))
+
+    @Slot(str)
+    def copyText(self, text):
+        QApplication.clipboard().setText(text)
+
+    @Slot()
+    def toggleFullscreen(self):
+        self.window.toggle_fullscreen()
+
+    @Slot()
+    def quit(self):
+        self.window.close()
+
+    @Slot(str)
+    def setDocumentTitle(self, title):
+        self.window.setWindowTitle(f"{title} — {APP_NAME}" if title else APP_NAME)
+
+    @Slot(str, str)
+    def openLink(self, href, document_id):
+        parsed = urlparse(href)
+        if parsed.scheme in {"http", "https", "mailto"}:
+            QDesktopServices.openUrl(QUrl(href))
+            return
+        session = self.sessions.get(document_id)
+        source = Path(session.document.path) if session and session.document.path else None
+        if parsed.scheme or parsed.netloc or source is None:
+            self.errorOccurred.emit("This type of link is not supported.")
+            return
+        target = (source.parent / unquote(parsed.path)).resolve()
+        if target.suffix.lower() in EXTENSIONS and target.is_relative_to(source.parent):
+            self.load_paths([target])
+        else:
+            self.errorOccurred.emit("Only document links inside the current document folder can be opened.")
+
+
+class ReaderView(QWebEngineView):
+    def __init__(self, window):
+        super().__init__(window)
+        self.window = window
+        self.setAcceptDrops(True)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls() and any(url.isLocalFile() for url in event.mimeData().urls()):
+            event.acceptProposedAction()
+            self.page().runJavaScript("document.body.classList.add('dropping')")
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        self.page().runJavaScript("document.body.classList.remove('dropping')")
+        event.accept()
+
+    def dropEvent(self, event):
+        self.page().runJavaScript("document.body.classList.remove('dropping')")
+        paths = [Path(url.toLocalFile()) for url in event.mimeData().urls() if url.isLocalFile()]
+        if paths:
+            self.window.bridge.load_paths(paths)
+            event.acceptProposedAction()
+
+
+class ReaderWindow(QMainWindow):
+    def __init__(self, initial_paths=(), settings_path=None):
+        super().__init__()
+        self.allow_close = False
+        self.close_pending = False
+        self.setWindowTitle(APP_NAME)
+        self.setWindowIcon(QIcon(str(WEB / "icon.svg")))
+        self.resize(1320, 900)
+        self.setMinimumSize(860, 600)
+        self.view = ReaderView(self)
+        self.profile = QWebEngineProfile(self)
+        self.requests = LocalRequests(self.profile)
+        self.profile.setUrlRequestInterceptor(self.requests)
+        self.page = ReaderPage(self.profile, self.view)
+        self.view.setPage(self.page)
+        settings = self.page.settings()
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, False)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptCanOpenWindows, False)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.PluginsEnabled, False)
+        self.setCentralWidget(self.view)
+        self.bridge = Bridge(self, initial_paths, settings_path)
+        geometry = self.bridge.settings.value("geometry")
+        if geometry:
+            self.restoreGeometry(geometry)
+        self.channel = QWebChannel(self.page)
+        self.channel.registerObject("native", self.bridge)
+        self.page.setWebChannel(self.channel)
+        self.view.load(QUrl.fromLocalFile(str(WEB / "index.html")))
+
+    def toggle_fullscreen(self):
+        self.showNormal() if self.isFullScreen() else self.showFullScreen()
+
+    def closeEvent(self, event):
+        if self.bridge.initialized and not self.allow_close:
+            event.ignore()
+            if not self.close_pending:
+                self.close_pending = True
+                self.bridge.command.emit("quit-request")
+            return
+        self.bridge.settings.setValue("geometry", self.saveGeometry())
+        self.bridge.settings.sync()
+        self.bridge.pool.waitForDone()
+        super().closeEvent(event)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Khana — Local Markdown and HTML reader for Persian and English")
+    parser.add_argument("--version", action="version", version=f"{APP_NAME} {VERSION}")
+    parser.add_argument("files", nargs="*", type=Path, help="Markdown or HTML files to open")
+    args = parser.parse_args()
+    QApplication.setApplicationName(APP_NAME)
+    QApplication.setOrganizationName(APP_NAME)
+    QApplication.setApplicationVersion(VERSION)
+    app = QApplication(sys.argv[:1])
+    app.setApplicationDisplayName(APP_NAME)
+    # Wayland app_id must match the installed .desktop basename. The desktop
+    # shell reads the human-readable Name and themed Icon from that entry.
+    app.setDesktopFileName(APP_ID)
+    app.setWindowIcon(QIcon(str(WEB / "icon.svg")))
+    window = ReaderWindow(args.files)
+    window.showFullScreen()
+    return app.exec()
