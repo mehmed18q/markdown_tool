@@ -19,7 +19,7 @@ from reader.word_documents import save_word, load_word
 
 def main():
     app = QCoreApplication.instance() or QCoreApplication([])
-    package = ROOT / 'dist/khana_0.5.0-1_amd64.deb'
+    package = ROOT / 'dist/khana_0.5.1-1_amd64.deb'
     fields = subprocess.check_output(['dpkg-deb', '--field', str(package)], text=True)
     assert 'Package: khana\n' in fields and 'Architecture: amd64\n' in fields
     with tempfile.TemporaryDirectory(prefix='khana-deb-') as temporary:
@@ -33,7 +33,7 @@ def main():
         subprocess.run(['desktop-file-validate', str(entry)], check=True)
         assert (payload / 'usr/bin/khana').readlink() == Path('/opt/khana/Khana')
         executable = payload / 'opt/khana/Khana'
-        assert subprocess.check_output([str(executable), '--version'], text=True).strip() == 'Khana 0.5.0'
+        assert subprocess.check_output([str(executable), '--version'], text=True).strip() == 'Khana 0.5.1'
         for size in (16, 22, 24, 32, 48, 64, 128, 256, 512):
             icon = QImage(str(payload / f'usr/share/icons/hicolor/{size}x{size}/apps/io.khana.Khana.png'))
             assert icon.width() == size and icon.height() == size
@@ -54,7 +54,7 @@ def main():
         running = None
         try:
             running = PackagedApp(executable, folder, extra_env={'WAYLAND_DEBUG': 'client'})
-            assert running.evaluate("document.querySelector('.version-note').textContent.includes('0.5')")
+            assert running.evaluate("document.querySelector('.version-note').textContent.includes('0.5.1')")
             running.evaluate("document.getElementById('minimize-button').click()")
             running.close()
             if os.environ.get('XDG_SESSION_TYPE') == 'wayland':

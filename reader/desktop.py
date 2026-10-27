@@ -594,6 +594,22 @@ class Bridge(QObject):
         self.window.toggle_fullscreen()
 
     @Slot()
+    def startWindowMove(self):
+        # WebChannel messages are asynchronous. A quick release must not start
+        # a move later or unexpectedly take the window out of fullscreen.
+        if not QApplication.mouseButtons() & Qt.MouseButton.LeftButton:
+            return
+        handle = self.window.windowHandle()
+        if handle is None:
+            return
+        if self.window.isFullScreen():
+            self.window.showNormal()
+        # Let the compositor manage positioning, snapping and monitor scaling.
+        # In particular, QWidget.move() cannot move top-level Wayland windows.
+        if not handle.startSystemMove():
+            self.errorOccurred.emit('Could not start moving the window. Try dragging its system title bar.')
+
+    @Slot()
     def minimize(self):
         self.window.showMinimized()
 

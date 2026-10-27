@@ -9,7 +9,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from PySide6.QtCore import QMimeData, QPointF, Qt, QUrl
+from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWebEngineCore import QWebEnginePage
@@ -48,6 +48,72 @@ def main():
             wait_for("!!window.readerApp?.activeId && document.fonts.status === 'loaded'", 'desktop bridge, fonts and sample load')
             assert window.isFullScreen()
             print('PASS: starts fullscreen', flush=True)
+
+            def point(selector):
+                x, y = json.loads(evaluate("JSON.stringify((()=>{const r=document.querySelector(" + json.dumps(selector) + ").getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]})())"))
+                return window.view.mapTo(window, QPoint(round(x), round(y)))
+
+            def wait_for_move(count):
+                deadline = time.monotonic() + 5
+                while move.call_count < count and time.monotonic() < deadline:
+                    QTest.qWait(20)
+                assert move.call_count == count
+
+            handle = window.windowHandle()
+            with patch.object(handle, 'startSystemMove', return_value=True) as move:
+                # Send real Qt input through WebEngine and WebChannel, keeping
+                # the native mouse button held until the bridge receives it.
+                title = point('#current-filename')
+                QTest.mouseClick(handle, Qt.MouseButton.LeftButton, pos=title)
+                QTest.qWait(120)
+                assert window.isFullScreen() and not move.called
+                QTest.mousePress(handle, Qt.MouseButton.LeftButton, pos=title)
+                QTest.mouseMove(handle, title + QPoint(2, 1))
+                QTest.qWait(120)
+                assert window.isFullScreen() and not move.called
+                QTest.mouseMove(handle, title + QPoint(35, 12))
+                wait_for_move(1)
+                QTest.mouseRelease(handle, Qt.MouseButton.LeftButton, pos=title + QPoint(35, 12))
+                assert move.call_count == 1 and not window.isFullScreen()
+                print('PASS: header drag restores fullscreen and requests a native move', flush=True)
+
+                QTest.qWait(200)
+                for selector in ('.brand-name', '.topbar'):
+                    start = point(selector)
+                    before = move.call_count
+                    QTest.mousePress(handle, Qt.MouseButton.LeftButton, pos=start)
+                    QTest.mouseMove(handle, start + QPoint(30, 15))
+                    wait_for_move(before + 1)
+                    QTest.mouseRelease(handle, Qt.MouseButton.LeftButton, pos=start + QPoint(30, 15))
+                    assert move.call_count == before + 1
+                print('PASS: windowed header and logo request native movement', flush=True)
+
+                before = move.call_count
+                start = point('#search-button svg')
+                QTest.mousePress(handle, Qt.MouseButton.LeftButton, pos=start)
+                QTest.mouseMove(handle, start + QPoint(-50, 0))
+                QTest.qWait(120)
+                QTest.mouseRelease(handle, Qt.MouseButton.LeftButton, pos=start + QPoint(-50, 0))
+                assert move.call_count == before
+                QTest.mouseClick(handle, Qt.MouseButton.LeftButton, pos=point('#search-button'))
+                wait_for("!document.getElementById('search-panel').hidden", 'header buttons still receive clicks')
+                evaluate("document.getElementById('search-close').click()")
+
+                start = point('#current-filename')
+                QTest.mousePress(handle, Qt.MouseButton.RightButton, pos=start)
+                QTest.mouseMove(handle, start + QPoint(40, 0))
+                QTest.qWait(100)
+                QTest.mouseRelease(handle, Qt.MouseButton.RightButton, pos=start + QPoint(40, 0))
+                window.bridge.startWindowMove()  # Released pointer / delayed bridge call.
+                assert move.call_count == before
+                evaluate("document.querySelector('.topbar').dispatchEvent(new MouseEvent('dblclick',{bubbles:true,button:0}))")
+                QTest.qWait(150)
+                assert window.isFullScreen()
+                evaluate("document.querySelector('#theme-button svg').dispatchEvent(new MouseEvent('dblclick',{bubbles:true,button:0}))")
+                QTest.qWait(100)
+                assert window.isFullScreen()
+                print('PASS: double-click toggles fullscreen; controls and released/right pointers never move', flush=True)
+
             wait_for("document.documentElement.lang === 'en' && document.getElementById('open-file').textContent.includes('Open file')", 'English UI')
             wait_for("[...document.querySelectorAll('#document p')].find(p=>p.textContent.startsWith('Markdown')).dir === 'rtl'", 'English-leading Persian paragraph stays RTL')
             wait_for("[...document.querySelectorAll('#document p')].find(p=>p.textContent.startsWith('This paragraph')).dir === 'ltr'", 'English paragraph stays LTR')

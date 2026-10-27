@@ -19,12 +19,12 @@ The verified environment is Ubuntu 26.04 x86_64 with Python 3.14. Windows source
 The `.deb` package includes Python, Qt WebEngine, the PDF engine, fonts, and the offline diagram renderer. Its LibreOffice Writer dependency provides `.doc` / `.docx` import and export; `apt install` installs it when needed. You do not need to clone the project or install Python separately.
 
 1. Open [Releases](https://github.com/mehmed18q/markdown_tool/releases) and expand the release's **Assets**.
-2. Download the `.deb` file and its matching `.deb.sha256` file. For version 0.5.0 these are `khana_0.5.0-1_amd64.deb` and `khana_0.5.0-1_amd64.deb.sha256`.
+2. Download the `.deb` file and its matching `.deb.sha256` file. For version 0.5.1 these are `khana_0.5.1-1_amd64.deb` and `khana_0.5.1-1_amd64.deb.sha256`.
 3. Open a terminal in the download folder and run the following commands. Use the downloaded filenames if the version differs.
 
 ```bash
-sha256sum -c khana_0.5.0-1_amd64.deb.sha256
-sudo apt install ./khana_0.5.0-1_amd64.deb
+sha256sum -c khana_0.5.1-1_amd64.deb.sha256
+sudo apt install ./khana_0.5.1-1_amd64.deb
 ```
 
 The checksum command should report **OK**. Installation asks for your Ubuntu administrator password. You can also open the `.deb` with your system's package installer.
@@ -90,7 +90,11 @@ No activation script or PowerShell execution-policy change is needed because the
 
 ### First launch
 
-Khana starts fullscreen with a sample document. Press **F11**, or click the F11 button, to return to a regular window. The **Minimize** button in the top bar sends the window to the taskbar/dock. Click **Open file** to read an existing document or **New document** to start writing. Use **Edit & Preview** for editing and live preview; **Save** and **Save As…** write your changes to disk.
+Khana starts fullscreen with a sample document. Press **F11**, or click the F11 button, to return to a regular window. The **Minimize** button in the top bar sends the window to the taskbar/dock.
+
+Drag the filename, empty space in the top bar, or the Khana logo to move the window to another monitor. Dragging from fullscreen restores a regular window first; press **F11** on the destination monitor to fill it again. Double-click the same header areas to toggle fullscreen. Header buttons keep their normal actions.
+
+Click **Open file** to read an existing document or **New document** to start writing. Use **Edit & Preview** for editing and live preview; **Save** and **Save As…** write your changes to disk.
 
 You can pass files at startup when running from source:
 
@@ -108,10 +112,10 @@ Build on **Ubuntu 26.04 x86_64**. First follow the [Ubuntu source setup](#ubuntu
 sudo apt install curl dpkg desktop-file-utils
 .venv/bin/python -m pip install -r requirements-build.txt
 .venv/bin/python scripts/build_deb.py
-sudo apt install ./dist/khana_0.5.0-1_amd64.deb
+sudo apt install ./dist/khana_0.5.1-1_amd64.deb
 ```
 
-The build produces `dist/khana_0.5.0-1_amd64.deb` and its `.deb.sha256` checksum. Build as your normal user; only the final installation command needs administrator access.
+The build produces `dist/khana_0.5.1-1_amd64.deb` and its `.deb.sha256` checksum. Build as your normal user; only the final installation command needs administrator access.
 
 The installer registers `/usr/bin/khana`, `/usr/share/applications/io.khana.Khana.desktop`, and the SVG/PNG logo under the system icon theme. Its runtime is installed in `/opt/khana`. The application ID, desktop entry, and icon name match so the desktop displays **Khana** and associates its running window with the launcher.
 
@@ -151,12 +155,12 @@ Build outputs are excluded by `.gitignore`; pushing the source does not publish 
 
 | Asset | Purpose |
 | --- | --- |
-| `dist/khana_0.5.0-1_amd64.deb` | Ubuntu installer |
-| `dist/khana_0.5.0-1_amd64.deb.sha256` | Installer checksum |
+| `dist/khana_0.5.1-1_amd64.deb` | Ubuntu installer |
+| `dist/khana_0.5.1-1_amd64.deb.sha256` | Installer checksum |
 | `dist/Khana` (optional) | Portable Linux executable |
 | `dist/SHA256SUMS` (with the portable executable) | Portable executable checksum |
 
-These names describe version 0.5.0. Update versioned examples when publishing a newer package. Build and test each asset from the same release source before uploading it.
+These names describe version 0.5.1. Update versioned examples when publishing a newer package. Build and test each asset from the same release source before uploading it.
 
 ## Reading
 

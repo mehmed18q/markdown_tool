@@ -17,3 +17,7 @@ body{font-family:'DejaVu Sans',Arial,sans-serif;font-size:12px;line-height:1.7}
 .document :not(pre)>code{display:inline-block;max-width:100%;white-space:pre;overflow-x:auto;vertical-align:middle;line-height:1.6}
 .open-button{font-size:12px}.open-button kbd{font-size:9px}.section-label{font-size:9px;letter-spacing:1.2px}.version-note{font-size:8px}.local-note{font-size:10px}.copy-code{font-family:'DejaVu Sans',Arial,sans-serif;direction:ltr}.control-label{font-size:10px}.appearance-button{font-size:10px}.paper-topline{font-size:10px}.popover-heading{font-size:11px}.document details{border:1px solid var(--line);border-radius:7px;padding:12px 18px;margin:18px 0}.document summary{cursor:pointer;font-weight:600}.document kbd,.document samp{font:0.8em 'DejaVu Sans Mono',monospace;unicode-bidi:isolate;direction:ltr;background:var(--code);padding:2px 5px;border-radius:4px}.document mark{background:#ede5ae;color:#34382e}.document dd{margin-inline-start:25px}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+
+/* The app header acts as a native window drag handle. */
+[data-window-drag]{user-select:none;cursor:grab;touch-action:none}
+[data-window-drag]:active{cursor:grabbing}
