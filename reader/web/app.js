@@ -3,7 +3,7 @@
   const $ = id => document.getElementById(id);
   const formatNumber = number => new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(number);
   const icon = name => `<svg aria-hidden="true"><use href="#i-${name}"/></svg>`;
-  const defaults = { theme: 'light', direction: 'smart', fontSize: 17, lineHeight: 2, wide: false };
+  const defaults = { theme: 'light', direction: 'smart', fontSize: 17, lineHeight: 2, wide: false, syncScroll: true };
   let settings = { ...defaults }, bridge, activeId = null, observer, toastTimer, searchTimer;
   const documents = new Map(), positions = new Map(), overrides = new Map();
   const editors = new Map(), previewTimers = new Map();
@@ -12,6 +12,11 @@
   let linkContext = null;
   const reading = ReaderLibrary.create({ article, scroller, current: () => documents.get(activeId),
     documents, sourceOf, native: () => bridge, toast });
+  const sync = ReaderScrollSync.create({ article, scroller, current: () => documents.get(activeId),
+    editor: () => editors.get(activeId), enabled: () => settings.syncScroll });
+  const supportsFormatting = doc => ['Markdown', 'HTML', 'Word'].includes(doc?.format);
+  const pdf = ReaderPDF.create({ article, scroller, current: () => documents.get(activeId), native: () => bridge, toast,
+    changed: source => { const doc = documents.get(activeId); doc.source = source; updateCaption(); renderFiles(); schedulePreview(doc); } });
 
   function toast(message, error = false) {
     clearTimeout(toastTimer);
@@ -31,6 +36,7 @@
     $('line-height').value = settings.lineHeight;
     $('line-value').textContent = formatNumber(settings.lineHeight);
     $('wide-page').checked = settings.wide;
+    $('sync-scroll').checked = settings.syncScroll;
     $('theme-button').innerHTML = icon(settings.theme === 'dark' ? 'sun' : 'moon');
     $('theme-button').setAttribute('aria-label', settings.theme === 'dark' ? 'Light theme' : 'Dark theme');
     document.querySelectorAll('button[data-direction]').forEach(button => {
@@ -181,9 +187,11 @@
   }
 
   function paintPreview(doc) {
+    sync.reset();
     const top = scroller.scrollTop;
     clearHighlights();
     article.innerHTML = doc?.html || '';
+    article.classList.toggle('pdf-document', doc?.format === 'PDF');
     article.hidden = !doc;
     $('empty-state').hidden = Boolean(doc);
     $('paper-end').hidden = !doc;
@@ -197,6 +205,7 @@
       enhanceDocument();
     }
     reading.mount();
+    pdf.mount();
     renderOutline(doc); preferences(false);
     scroller.scrollTo({ top, behavior: 'instant' });
     if (!$('search-panel').hidden) search();
@@ -213,6 +222,7 @@
     const target = refresh ? Math.min(positions.get(id) || 0, scroller.scrollHeight) : positions.get(id) || 0;
     scroller.scrollTo({ top: target, behavior: 'instant' });
     reading.changed(!positions.has(id));
+    sync.mount('preview');
     if (id) bridge?.activateDocument(id);
     if (!$('search-panel').hidden) search();
     requestAnimationFrame(updateProgress);
@@ -226,7 +236,7 @@
     clearTimeout(previewTimers.get(doc.id)); previewTimers.delete(doc.id);
     editors.get(doc.id)?.remove(); editors.delete(doc.id);
     doc.editMode = previous?.editMode ?? !doc.path;
-    doc.editorDirection = previous?.editorDirection || (doc.format === 'HTML' ? 'ltr' : 'auto');
+    doc.editorDirection = previous?.editorDirection || (doc.format === 'Markdown' ? 'auto' : 'ltr');
     doc.revision = (previous?.revision || 0) + 1;
     doc.savedSource = doc.savedSource ?? doc.source;
     doc.dirty = doc.source !== doc.savedSource;
@@ -245,10 +255,11 @@
     $('sample-badge').hidden = !doc?.sample;
     $('reload-button').disabled = !doc?.path;
     $('save-button').disabled = $('save-as-button').disabled = !doc || Boolean(doc?.saving);
-    $('read-mode').disabled = $('edit-mode').disabled = !doc;
+    $('read-mode').disabled = !doc;
+    $('edit-mode').disabled = !doc || (doc.format === 'PDF' && !article.querySelector('[data-editable=true]'));
     $('save-status').textContent = !doc ? 'No document' : doc.saving ? 'Saving…' : doc.dirty ? 'Unsaved changes' : !doc.path ? 'Not saved yet' : 'Saved';
     $('save-status').classList.toggle('dirty', Boolean(doc?.dirty));
-    $('editor-name').textContent = `${doc?.format || 'Document'} source`;
+    $('editor-name').textContent = doc?.format === 'Word' ? 'Word source (HTML)' : `${doc?.format || 'Document'} source`;
     $('document-format').textContent = doc?.format || '—';
     $('encoding').textContent = doc?.encoding || '—';
     bridge?.setDocumentTitle(doc ? `${doc.dirty ? '● ' : ''}${doc.name}` : '');
@@ -261,7 +272,7 @@
     editor.className = 'source-editor'; editor.value = doc.source;
     editor.spellcheck = false; editor.setAttribute('autocapitalize', 'off');
     editor.setAttribute('autocomplete', 'off'); editor.setAttribute('aria-label', `${doc.format} source editor`);
-    editor.placeholder = doc.format === 'HTML' ? '<h1>Your next idea</h1>\n<p>Start writing…</p>' : '# Your next idea\n\nStart writing in any language…';
+    editor.placeholder = ['HTML', 'Word'].includes(doc.format) ? '<h1>Your next idea</h1>\n<p>Start writing…</p>' : doc.format === 'Markdown' ? '# Your next idea\n\nStart writing in any language…' : `Start writing ${doc.format}…`;
     editor.addEventListener('input', () => {
       doc.source = editor.value;
       const wasDirty = doc.dirty;
@@ -272,7 +283,7 @@
     });
     editor.addEventListener('compositionend', () => schedulePreview(doc));
     editor.addEventListener('keydown', event => {
-      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.isComposing) return;
+      if (!supportsFormatting(doc) || !(event.ctrlKey || event.metaKey) || event.altKey || event.isComposing) return;
       const key = event.code || event.key.toLowerCase();
       const action = event.shiftKey
         ? ({ KeyX: 'strike', x: 'strike' })[key]
@@ -283,6 +294,7 @@
     editor.addEventListener('click', updateCursor);
     editor.addEventListener('select', updateCursor);
     editors.set(doc.id, editor); $('editor-container').append(editor);
+    sync.bind(editor);
     return editor;
   }
 
@@ -291,26 +303,31 @@
     document.body.classList.toggle('editing', enabled);
     $('mode-label').textContent = enabled ? 'Writing mode' : 'Reading mode';
     $('direction-label').textContent = enabled ? 'Preview direction' : 'Text direction';
-    $('editor-pane').hidden = !enabled;
+    $('editor-pane').hidden = !enabled || doc?.format === 'PDF';
+    $('format-toolbar').hidden = !supportsFormatting(doc);
+    $('word-editing-note').hidden = doc?.format !== 'Word';
+    $('sync-control').hidden = !enabled || doc?.format === 'PDF';
     $('read-mode').classList.toggle('active', !enabled);
     $('edit-mode').classList.toggle('active', enabled);
     $('read-mode').setAttribute('aria-pressed', String(!enabled));
     $('edit-mode').setAttribute('aria-pressed', String(enabled));
     for (const [id, editor] of editors) editor.hidden = id !== doc?.id;
-    if (enabled) {
+    if (enabled && doc?.format !== 'PDF') {
       const editor = ensureEditor(doc); editor.hidden = false;
       editor.dir = doc.editorDirection; editor.dataset.direction = doc.editorDirection;
       $('editor-direction').value = doc.editorDirection;
     }
     $('preview-status').textContent = doc?.previewPending ? 'Updating preview…' : 'Live preview';
     updateCursor();
+    document.body.classList.toggle('editing-pdf', enabled && doc?.format === 'PDF');
   }
 
   function setEditMode(enabled) {
     const doc = documents.get(activeId);
     if (!doc) return;
     doc.editMode = enabled; showEditor(doc);
-    if (enabled) editors.get(doc.id)?.focus();
+    if (enabled) editors.get(doc.id)?.focus({ preventScroll: true });
+    sync.mount('preview');
     requestAnimationFrame(updateProgress);
   }
 
@@ -338,6 +355,7 @@
     overrides.delete(doc.id);
     if (activeId === doc.id) {
       paintPreview(doc);
+      sync.preview();
       $('preview-status').textContent = 'Live preview';
     }
   }
@@ -379,11 +397,20 @@
 
   function formatSelection(action) {
     const doc = documents.get(activeId), editor = editors.get(activeId);
-    if (!doc?.editMode || !editor || editor.readOnly || document.querySelector('dialog[open]')) return;
+    if (!supportsFormatting(doc) || !doc?.editMode || !editor || editor.readOnly || document.querySelector('dialog[open]')) return;
     const start = editor.selectionStart, end = editor.selectionEnd;
+    if (action === 'image') {
+      const source = editor.value, id = doc.id;
+      bridge?.chooseImage(uri => {
+        if (!uri || activeId !== id || editor.value !== source) return;
+        const content = doc.format === 'Markdown' ? `![Image](<${uri}>)` : `<img src="${uri.replaceAll('&', '&amp;').replaceAll('"', '&quot;')}" alt="Image">`;
+        applySourceEdit(editor, ReaderInsertions.block(source, start, end, content));
+      });
+      return;
+    }
     if (action === 'table' || action === 'flowchart') {
       const source = editor.value, id = doc.id;
-      ReaderBuilders.open(action, { format: doc.format,
+      ReaderBuilders.open(action, { format: doc.format === 'Word' ? 'HTML' : doc.format,
         onCancel: () => {
           if (activeId === id && editors.get(id) === editor) { editor.focus(); editor.setSelectionRange(start, end); }
         },
@@ -405,7 +432,7 @@
       $('link-url').focus();
       return;
     }
-    applySourceEdit(editor, ReaderFormatting.transform(editor.value, start, end, action, doc.format));
+    applySourceEdit(editor, ReaderFormatting.transform(editor.value, start, end, action, doc.format === 'Word' ? 'HTML' : doc.format));
   }
 
   function updateProgress() {
@@ -534,7 +561,7 @@
       $('link-dialog').close(); toast('The source changed. Select the text and insert the link again.', true); return;
     }
     try {
-      const operation = ReaderFormatting.link(context.source, context.start, context.end, $('link-label').value, $('link-url').value, doc.format);
+      const operation = ReaderFormatting.link(context.source, context.start, context.end, $('link-label').value, $('link-url').value, doc.format === 'Word' ? 'HTML' : doc.format);
       // Close the modal before restoring editor focus and editing the source.
       linkContext = null; $('link-dialog').close();
       applySourceEdit(context.editor, operation);
@@ -560,6 +587,8 @@
   $('theme-button').onclick = () => { settings.theme = settings.theme === 'dark' ? 'light' : 'dark'; preferences(); };
   $('focus-button').onclick = focusMode;
   $('fullscreen-button').onclick = () => bridge?.toggleFullscreen();
+  $('minimize-button').onclick = () => bridge?.minimize();
+  $('sync-scroll').onchange = () => { settings.syncScroll = $('sync-scroll').checked; preferences(); sync.mount('preview'); };
   $('quit-button').onclick = () => bridge?.quit();
   $('appearance-button').onclick = () => {
     $('appearance-panel').hidden = !$('appearance-panel').hidden;
@@ -606,7 +635,7 @@
     cancelAnimationFrame(resizeFrame);
     // Resizing a graph changes article height. Do writes on the next frame
     // instead of feeding layout changes back into the observer delivery.
-    resizeFrame = requestAnimationFrame(() => { ReaderDiagrams.resize(article); reading.resize(); });
+    resizeFrame = requestAnimationFrame(() => { ReaderDiagrams.resize(article); reading.resize(); sync.resize(); });
   }).observe(article);
   window.addEventListener('resize', updateProgress);
   window.readerApp = { receiveDocument, showDocument, closeDocument, preferences, search, command, setEditMode,
@@ -634,6 +663,7 @@
         try { settings = { ...defaults, ...JSON.parse(raw) }; preferences(false); } catch { preferences(false); }
       });
       bridge.libraryChanged.connect(raw => reading.receive(raw));
+      bridge.pdfPageReady.connect(raw => pdf.receive(raw));
       bridge.command.connect(command);
       bridge.ready();
     });

@@ -1,20 +1,25 @@
 """Validate the installer payload and desktop identity without installing it."""
 from pathlib import Path
+import base64
 import json
 import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 
 from PySide6.QtCore import QCoreApplication
 from PySide6.QtGui import QImage
 from bundle_smoke import PackagedApp, ROOT
+sys.path.insert(0, str(ROOT))
+import pymupdf
+from reader.word_documents import save_word, load_word
 
 
 def main():
     app = QCoreApplication.instance() or QCoreApplication([])
-    package = ROOT / 'dist/khana_0.4.0-1_amd64.deb'
+    package = ROOT / 'dist/khana_0.5.0-1_amd64.deb'
     fields = subprocess.check_output(['dpkg-deb', '--field', str(package)], text=True)
     assert 'Package: khana\n' in fields and 'Architecture: amd64\n' in fields
     with tempfile.TemporaryDirectory(prefix='khana-deb-') as temporary:
@@ -28,7 +33,7 @@ def main():
         subprocess.run(['desktop-file-validate', str(entry)], check=True)
         assert (payload / 'usr/bin/khana').readlink() == Path('/opt/khana/Khana')
         executable = payload / 'opt/khana/Khana'
-        assert subprocess.check_output([str(executable), '--version'], text=True).strip() == 'Khana 0.4.0'
+        assert subprocess.check_output([str(executable), '--version'], text=True).strip() == 'Khana 0.5.0'
         for size in (16, 22, 24, 32, 48, 64, 128, 256, 512):
             icon = QImage(str(payload / f'usr/share/icons/hicolor/{size}x{size}/apps/io.khana.Khana.png'))
             assert icon.width() == size and icon.height() == size
@@ -49,10 +54,12 @@ def main():
         running = None
         try:
             running = PackagedApp(executable, folder, extra_env={'WAYLAND_DEBUG': 'client'})
-            assert running.evaluate("document.querySelector('.version-note').textContent.includes('0.4')")
+            assert running.evaluate("document.querySelector('.version-note').textContent.includes('0.5')")
+            running.evaluate("document.getElementById('minimize-button').click()")
             running.close()
             if os.environ.get('XDG_SESSION_TYPE') == 'wayland':
                 assert 'set_app_id("io.khana.Khana")' in (folder / 'app.log').read_text()
+                assert 'set_minimized()' in (folder / 'app.log').read_text()
                 print('PASS: actual Wayland app ID matches the installable desktop entry', flush=True)
             # Exercise SQLite and the annotation UI in the frozen executable,
             # including a full process restart with the same user configuration.
@@ -82,6 +89,33 @@ def main():
             assert source.read_text() == original
             running.close()
             print('PASS: annotation deletions persist and the source file stays unchanged', flush=True)
+            data_file = folder / 'sample.json'; data_file.write_text('{"hello": "سلام"}')
+            running = PackagedApp(executable, folder, [data_file])
+            running.wait("document.getElementById('document-format').textContent==='JSON'", 'packaged JSON reader')
+            running.evaluate("readerApp.setEditMode(true)")
+            assert running.evaluate("document.getElementById('format-toolbar').hidden && document.getElementById('sync-scroll').checked")
+            artifacts = ROOT / 'artifacts'; artifacts.mkdir(exist_ok=True)
+            (artifacts / 'packaged-json.png').write_bytes(base64.b64decode(running.call('Page.captureScreenshot', {'format': 'png'})['data']))
+            running.close()
+            word_file = folder / 'word.docx'; word_file.write_bytes(save_word('<h1>Packaged Word</h1>', '.docx'))
+            running = PackagedApp(executable, folder, [word_file])
+            running.wait("document.getElementById('document-format').textContent==='Word'", 'packaged Word conversion')
+            running.evaluate("readerApp.setEditMode(true); const e=document.querySelector('.source-editor:not([hidden])'); e.value='<h1>Saved Word</h1>'; e.dispatchEvent(new Event('input',{bubbles:true})); readerApp.command('save')")
+            running.wait("document.getElementById('save-status').textContent==='Saved'", 'packaged Word export')
+            assert 'Saved Word' in load_word(word_file.read_bytes(), '.docx')
+            running.close()
+            pdf_file = folder / 'sample.pdf'
+            with pymupdf.open() as pdf:
+                pdf.new_page().insert_text((70, 80), 'Packaged PDF text', fontsize=16); pdf.save(pdf_file)
+            running = PackagedApp(executable, folder, [pdf_file])
+            running.wait("document.querySelector('.pdf-image')?.naturalWidth>0", 'packaged PDF rendering with bundled native libraries')
+            (artifacts / 'packaged-pdf.png').write_bytes(base64.b64decode(running.call('Page.captureScreenshot', {'format': 'png'})['data']))
+            running.evaluate("document.querySelector('.pdf-edit').click(); document.getElementById('pdf-text-input').value='Saved PDF text'; document.getElementById('pdf-apply').click()")
+            running.wait("!document.getElementById('pdf-dialog').open && document.querySelector('.pdf-text').textContent==='Saved PDF text'", 'packaged PDF text replacement')
+            running.evaluate("readerApp.command('save')")
+            running.wait("document.getElementById('save-status').textContent==='Saved'", 'packaged PDF save')
+            running.close()
+            with pymupdf.open(pdf_file) as pdf: assert 'Saved PDF text' in pdf[0].get_text()
             if os.environ.get('DISPLAY'):
                 running = PackagedApp(executable, folder, platform='xcb')
                 listing = subprocess.check_output(['xprop', '-root', '_NET_CLIENT_LIST'], text=True)

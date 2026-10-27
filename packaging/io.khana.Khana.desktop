@@ -2,14 +2,14 @@
 Type=Application
 Version=1.0
 Name=Khana
-GenericName=Markdown and HTML Editor
+GenericName=Document and Text Editor
 Comment=Read and write Persian and English documents
 Exec=/usr/bin/khana %F
 TryExec=/usr/bin/khana
 Icon=io.khana.Khana
 Terminal=false
 Categories=Utility;TextEditor;
-MimeType=text/markdown;text/x-markdown;text/html;text/plain;
+MimeType=text/markdown;text/x-markdown;text/html;text/plain;application/json;application/yaml;text/yaml;application/xml;text/xml;application/pdf;application/msword;application/vnd.openxmlformats-officedocument.wordprocessingml.document;
 StartupNotify=true
 StartupWMClass=Khana
-Keywords=Markdown;HTML;Editor;Persian;RTL;Flowchart;Table;
+Keywords=Markdown;HTML;Word;PDF;JSON;YAML;XML;Log;Config;Editor;Persian;RTL;Flowchart;Table;

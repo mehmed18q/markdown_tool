@@ -8,6 +8,7 @@
     return (value >>> 0).toString(16);
   };
   function textOf(element) {
+    if (element.matches('.pdf-page')) return `Page ${Number(element.dataset.pdfPage) + 1}`;
     if (element.matches('.diagram-frame')) return normalize(element.querySelector('.diagram-source code')?.textContent || '');
     const clone = element.cloneNode(true);
     clone.querySelectorAll('button,.annotation-badges,.code-toolbar,.annotation-tools').forEach(node => node.remove());
@@ -15,8 +16,8 @@
   }
   function prepare(article, add, visit) {
     let heading = '';
-    const blocks = [...article.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,pre,.table-scroll,.diagram-frame,dt,dd,figcaption,summary')].filter(node =>
-      !node.matches('.empty-document') && !node.parentElement.closest('.table-scroll,pre,li,.diagram-frame,dt,dd,figcaption,summary'));
+    const blocks = [...article.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,pre,.source-line,.pdf-block,.pdf-page,.table-scroll,.diagram-frame,dt,dd,figcaption,summary')].filter(node =>
+      !node.matches('.empty-document,.structured-source') && (node.matches('.source-line') || !node.parentElement.closest('.table-scroll,pre,li,.diagram-frame,dt,dd,figcaption,summary')));
     return blocks.map((element, index) => {
       if (/^H[1-6]$/.test(element.tagName)) heading = element.id;
       const text = textOf(element);

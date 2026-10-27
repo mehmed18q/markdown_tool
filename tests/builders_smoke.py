@@ -120,9 +120,12 @@ def main():
             evaluate("document.querySelector('.diagram-actions [aria-label=\"Zoom in\"]').click()")
             assert evaluate("document.querySelector('.diagram-actions button:nth-child(2)').textContent.includes('%')")
             evaluate("document.querySelector('.diagram-actions button:nth-child(2)').click()")
-            evaluate("document.querySelector('.diagram-actions button:last-child').click()")
-            QTest.qWait(80)
-            assert 'flowchart TD' in app.clipboard().text()
+            # Verify the native clipboard request without depending on compositor
+            # focus: unfocused Wayland test windows cannot own the clipboard.
+            with patch('reader.desktop.QApplication.clipboard') as clipboard:
+                evaluate("document.querySelector('.diagram-actions button:last-child').click()")
+                QTest.qWait(80)
+                assert 'flowchart TD' in clipboard.return_value.setText.call_args.args[0]
             click('read-mode')
             evaluate("document.querySelector('.diagram-frame').scrollIntoView({block:'center'})")
             QTest.qWait(150); window.grab().save(str(artifacts / 'flowchart-light.png'))

@@ -38,7 +38,7 @@ def collect_licenses():
     output.mkdir(parents=True, exist_ok=True)
     packages = ["PySide6", "PySide6_Addons", "PySide6_Essentials", "shiboken6",
                 "markdown-it-py", "mdurl", "Pygments", "nh3", "beautifulsoup4",
-                "soupsieve", "typing_extensions", "PyInstaller"]
+                "soupsieve", "typing_extensions", "PyInstaller", "PyMuPDF"]
     notices = ["Khana bundles these third-party components:", ""]
     for name in packages:
         package = distribution(name)
@@ -85,9 +85,9 @@ def main():
         launcher = destination / "io.khana.Khana.desktop"
         launcher.write_text("\n".join([
             "[Desktop Entry]", "Type=Application", "Version=1.0", "Name=Khana",
-            "GenericName=Markdown and HTML Editor", "Comment=Read and write Persian and English documents",
+            "GenericName=Document and Text Editor", "Comment=Read and write Persian and English documents",
             f"Exec={desktop_quote(executable)} %F", f"Icon={icon}", "Terminal=false",
-            "Categories=Office;TextEditor;", "MimeType=text/markdown;text/html;text/plain;",
+            "Categories=Office;TextEditor;", "MimeType=text/markdown;text/html;text/plain;application/json;application/yaml;text/yaml;application/xml;text/xml;application/pdf;application/msword;application/vnd.openxmlformats-officedocument.wordprocessingml.document;",
             "StartupNotify=true", "StartupWMClass=Khana", "Keywords=Markdown;HTML;Editor;Persian;", ""
         ]), encoding="utf-8")
         launcher.chmod(0o755)

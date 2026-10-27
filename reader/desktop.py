@@ -18,7 +18,7 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication, QFileDialog, QMainWindow, QMessageBox
 
 from reader import APP_ID, APP_NAME, VERSION
-from reader.documents import Document, EXTENSIONS, IMAGE_EXTENSIONS, load_document, render_source
+from reader.documents import Document, EXTENSIONS, FORMAT_EXTENSIONS, IMAGE_EXTENSIONS, file_filter, load_document, render_source
 from reader.editing import EditSession, fingerprint
 from reader.library import ReadingLibrary
 
@@ -50,7 +50,7 @@ class LocalRequests(QWebEngineUrlRequestInterceptor):
             path = Path(url.toLocalFile()).resolve()
             if path.is_relative_to(WEB):
                 return
-            if path.suffix.lower() in IMAGE_EXTENSIONS and any(path.is_relative_to(p) for p in self.folders):
+            if path.suffix.lower() in IMAGE_EXTENSIONS:
                 return
         info.block(True)
 
@@ -93,6 +93,22 @@ class LoadTask(QRunnable):
             self.signals.failed.emit(str(self.path), "This file could not be read.")
 
 
+class PdfPageTask(QRunnable):
+    def __init__(self, document_id, source, number, revision):
+        super().__init__()
+        self.document_id, self.source, self.number, self.revision = document_id, source, number, revision
+        self.signals = LoadSignals()
+
+    def run(self):
+        from reader.pdf_documents import page_image
+        payload = {'id': self.document_id, 'number': self.number, 'revision': self.revision}
+        try:
+            payload['url'] = page_image(self.source, self.number)
+        except Exception as error:
+            payload['error'] = str(error)
+        self.signals.finished.emit(self.document_id, json.dumps(payload))
+
+
 class PreviewTask(QRunnable):
     def __init__(self, document_id, source, document_format, folder, revision):
         super().__init__()
@@ -119,6 +135,7 @@ class Bridge(QObject):
     busyChanged = Signal(bool)
     settingsLoaded = Signal(str)
     libraryChanged = Signal(str)
+    pdfPageReady = Signal(str)
     command = Signal(str)
 
     def __init__(self, window, initial_paths, settings_path=None):
@@ -138,6 +155,7 @@ class Bridge(QObject):
         self.opened: set[Path] = set()
         self.sessions: dict[str, EditSession] = {}
         self.preview_tasks: dict[str, PreviewTask] = {}
+        self.pdf_tasks: dict[tuple, PdfPageTask] = {}
         self.pending_previews: dict[str, tuple] = {}
         self.new_count = 0
         self.tasks: dict[str, LoadTask] = {}
@@ -280,7 +298,8 @@ class Bridge(QObject):
     def openFiles(self):
         paths, _ = QFileDialog.getOpenFileNames(
             self.window, "Open a document", str(self.settings.value("lastFolder", Path.home())),
-            "Documents (*.md *.MD *.markdown *.MARKDOWN *.mdown *.mkd *.txt *.html *.htm *.HTML *.HTM);;Markdown (*.md *.markdown *.mdown *.mkd);;HTML (*.html *.htm);;Text (*.txt);;All files (*)",
+            'Documents (' + ' '.join('*' + ext for ext in sorted(EXTENSIONS | {ext.upper() for ext in EXTENSIONS})) + ');;'
+            + ';;'.join(file_filter(name) for name in FORMAT_EXTENSIONS) + ';;All files (*)',
         )
         if paths:
             self.settings.setValue("lastFolder", str(Path(paths[0]).parent))
@@ -342,10 +361,10 @@ class Bridge(QObject):
 
     @Slot(str)
     def newDocument(self, document_format):
-        if document_format not in {"Markdown", "HTML"}:
+        if document_format not in FORMAT_EXTENSIONS or document_format == 'PDF':
             return
         self.new_count += 1
-        name = f"Untitled {self.new_count}.{'html' if document_format == 'HTML' else 'md'}"
+        name = f"Untitled {self.new_count}{FORMAT_EXTENSIONS[document_format][0]}"
         doc = Document(id=f"untitled:{uuid4()}", name=name, path="", html="", headings=[],
                        words=0, size=0, encoding="UTF-8", format=document_format)
         session = EditSession.opened(doc)
@@ -417,14 +436,14 @@ class Bridge(QObject):
         choose_path = save_as or target is None or doc.sample
         if choose_path:
             initial = str(target or Path(str(self.settings.value("lastFolder", Path.home()))) / doc.name)
-            file_filter = "HTML (*.html *.htm)" if doc.format == "HTML" else "Markdown (*.md *.markdown *.mdown *.mkd);;Text (*.txt)"
+            filters = file_filter(doc.format) + (';;Text (*.txt)' if doc.format == 'Markdown' else '')
             name, selected_filter = QFileDialog.getSaveFileName(
-                self.window, "Save As", initial, file_filter, options=QFileDialog.Option.DontConfirmOverwrite)
+                self.window, "Save As", initial, filters, options=QFileDialog.Option.DontConfirmOverwrite)
             if not name:
                 return False
             target = Path(name).expanduser()
             if not target.suffix:
-                target = target.with_suffix(".html" if doc.format == "HTML" else ".txt" if selected_filter.startswith("Text") else ".md")
+                target = target.with_suffix('.txt' if selected_filter.startswith('Text') else FORMAT_EXTENSIONS[doc.format][0])
             target = target.resolve()
             if str(target) in self.tasks:
                 self.errorOccurred.emit("That file is still being opened. Please wait, then save again.")
@@ -516,6 +535,7 @@ class Bridge(QObject):
                 "fontSize": max(14, min(24, int(values.get("fontSize", 17)))),
                 "lineHeight": max(1.6, min(2.6, float(values.get("lineHeight", 2)))),
                 "wide": bool(values.get("wide", False)),
+                "syncScroll": bool(values.get("syncScroll", True)),
             }
         except (ValueError, TypeError):
             return
@@ -525,9 +545,57 @@ class Bridge(QObject):
     def copyText(self, text):
         QApplication.clipboard().setText(text)
 
+    @Slot(result=str)
+    def chooseImage(self):
+        name, _ = QFileDialog.getOpenFileName(self.window, 'Insert image', str(self.settings.value('imageFolder', Path.home())),
+                                             'Images (' + ' '.join('*' + ext for ext in sorted(IMAGE_EXTENSIONS)) + ')')
+        if not name:
+            return ''
+        path = Path(name).resolve()
+        self.settings.setValue('imageFolder', str(path.parent))
+        return path.as_uri()
+
+    @Slot(str, str, int, int)
+    def requestPdfPage(self, document_id, source, number, revision):
+        session = self.sessions.get(document_id)
+        if not session or session.document.format != 'PDF' or number < 0:
+            return
+        task = PdfPageTask(document_id, source, number, revision)
+        key = (document_id, number, revision)
+        if key in self.pdf_tasks:
+            return
+        self.pdf_tasks[key] = task
+        task.signals.finished.connect(self._pdf_finished)
+        self.pool.start(task)
+
+    @Slot(str, str)
+    def _pdf_finished(self, document_id, payload):
+        result = json.loads(payload)
+        self.pdf_tasks.pop((document_id, result['number'], result['revision']), None)
+        if document_id in self.sessions:
+            self.pdfPageReady.emit(payload)
+
+    @Slot(str, str, result=str)
+    def validatePdfEdit(self, document_id, source):
+        session = self.sessions.get(document_id)
+        if not session or session.document.format != 'PDF':
+            return 'Reopen the PDF and try again.'
+        try:
+            from reader.pdf_documents import save_pdf
+            if json.loads(source)['pdfId'] != json.loads(session.document.source)['pdfId']:
+                return 'The PDF changed. Select the text again.'
+            save_pdf(source)
+            return ''
+        except (ValueError, RuntimeError, KeyError) as error:
+            return str(error)
+
     @Slot()
     def toggleFullscreen(self):
         self.window.toggle_fullscreen()
+
+    @Slot()
+    def minimize(self):
+        self.window.showMinimized()
 
     @Slot()
     def quit(self):

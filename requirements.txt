@@ -3,3 +3,4 @@ markdown-it-py==4.2.0
 Pygments==2.21.0
 nh3==0.3.7
 beautifulsoup4==4.15.0
+PyMuPDF==1.26.7

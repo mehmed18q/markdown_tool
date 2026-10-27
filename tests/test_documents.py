@@ -31,7 +31,7 @@ class DocumentTests(unittest.TestCase):
             self.assertNotIn(forbidden, html)
         self.assertEqual(headings[0]['id'], 'doc-heading-document')
         self.assertIn('href="#doc-heading-document"', html)
-        self.assertIn('<p>متن فارسی با English</p>', html)
+        self.assertTrue(any(p.get_text() == 'متن فارسی با English' for p in BeautifulSoup(html, 'html.parser').find_all('p')))
 
     def test_html_load_and_explicit_direction(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -47,7 +47,7 @@ class DocumentTests(unittest.TestCase):
     def test_persian_english_structures_and_unique_anchors(self):
         html, headings = render_markdown("# سلام Hello\n\n# سلام Hello\n\n# سلام Hello-1\n\n| فارسی | English |\n| --- | --- |\n| الف | test |\n\n~~گذشته~~\n\n[برو](#سلام-hello)")
         self.assertEqual(len({h['id'] for h in headings}), 3)
-        self.assertIn('<table>', html)
+        self.assertIsNotNone(BeautifulSoup(html, 'html.parser').table)
         self.assertIn('<s>گذشته</s>', html)
         self.assertIn('href="#doc-heading-', html)
         self.assertTrue(all(h['id'].startswith('doc-heading-') for h in headings))

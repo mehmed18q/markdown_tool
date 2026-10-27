@@ -1,6 +1,6 @@
 # Khana
 
-A local desktop reader and source editor for mixed Persian and English documents. Create, open, edit, and save Markdown or HTML with a live preview. Each paragraph is displayed in its own direction. The application interface is English; document content keeps its original language.
+A local desktop reader and editor for mixed Persian and English documents. Open Markdown, HTML, Word, PDF, JSON, YAML, logs, configuration files, and XML. Edit supported content with a synchronized preview. Each prose paragraph is displayed in its own direction. The application interface is English; document content keeps its original language.
 
 ## Installation
 
@@ -16,15 +16,15 @@ The verified environment is Ubuntu 26.04 x86_64 with Python 3.14. Windows source
 
 ## Install on Ubuntu
 
-The `.deb` package includes Python, Qt WebEngine, fonts, and the offline diagram renderer. You do not need to clone the project or install Python separately.
+The `.deb` package includes Python, Qt WebEngine, the PDF engine, fonts, and the offline diagram renderer. Its LibreOffice Writer dependency provides `.doc` / `.docx` import and export; `apt install` installs it when needed. You do not need to clone the project or install Python separately.
 
 1. Open [Releases](https://github.com/mehmed18q/markdown_tool/releases) and expand the release's **Assets**.
-2. Download the `.deb` file and its matching `.deb.sha256` file. For version 0.4.0 these are `khana_0.4.0-1_amd64.deb` and `khana_0.4.0-1_amd64.deb.sha256`.
+2. Download the `.deb` file and its matching `.deb.sha256` file. For version 0.5.0 these are `khana_0.5.0-1_amd64.deb` and `khana_0.5.0-1_amd64.deb.sha256`.
 3. Open a terminal in the download folder and run the following commands. Use the downloaded filenames if the version differs.
 
 ```bash
-sha256sum -c khana_0.4.0-1_amd64.deb.sha256
-sudo apt install ./khana_0.4.0-1_amd64.deb
+sha256sum -c khana_0.5.0-1_amd64.deb.sha256
+sudo apt install ./khana_0.5.0-1_amd64.deb
 ```
 
 The checksum command should report **OK**. Installation asks for your Ubuntu administrator password. You can also open the `.deb` with your system's package installer.
@@ -54,7 +54,7 @@ On Ubuntu 26.04, install Python, Git, and the desktop libraries needed by Qt:
 
 ```bash
 sudo apt update
-sudo apt install git python3 python3-venv python3-pip \
+sudo apt install git python3 python3-venv python3-pip libreoffice-writer \
   libegl1 libgl1 libnss3 libasound2t64 \
   libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
   libxcb-render-util0 libxcb-xkb1 libxkbcommon-x11-0
@@ -90,7 +90,7 @@ No activation script or PowerShell execution-policy change is needed because the
 
 ### First launch
 
-Khana starts fullscreen with a sample document. Press **F11**, or click the F11 button, to return to a regular window. Click **Open file** to read an existing document or **New document** to start writing. Use **Edit & Preview** for source editing and live preview; **Save** and **Save As…** write your changes to disk.
+Khana starts fullscreen with a sample document. Press **F11**, or click the F11 button, to return to a regular window. The **Minimize** button in the top bar sends the window to the taskbar/dock. Click **Open file** to read an existing document or **New document** to start writing. Use **Edit & Preview** for editing and live preview; **Save** and **Save As…** write your changes to disk.
 
 You can pass files at startup when running from source:
 
@@ -108,10 +108,10 @@ Build on **Ubuntu 26.04 x86_64**. First follow the [Ubuntu source setup](#ubuntu
 sudo apt install curl dpkg desktop-file-utils
 .venv/bin/python -m pip install -r requirements-build.txt
 .venv/bin/python scripts/build_deb.py
-sudo apt install ./dist/khana_0.4.0-1_amd64.deb
+sudo apt install ./dist/khana_0.5.0-1_amd64.deb
 ```
 
-The build produces `dist/khana_0.4.0-1_amd64.deb` and its `.deb.sha256` checksum. Build as your normal user; only the final installation command needs administrator access.
+The build produces `dist/khana_0.5.0-1_amd64.deb` and its `.deb.sha256` checksum. Build as your normal user; only the final installation command needs administrator access.
 
 The installer registers `/usr/bin/khana`, `/usr/share/applications/io.khana.Khana.desktop`, and the SVG/PNG logo under the system icon theme. Its runtime is installed in `/opt/khana`. The application ID, desktop entry, and icon name match so the desktop displays **Khana** and associates its running window with the launcher.
 
@@ -151,16 +151,16 @@ Build outputs are excluded by `.gitignore`; pushing the source does not publish 
 
 | Asset | Purpose |
 | --- | --- |
-| `dist/khana_0.4.0-1_amd64.deb` | Ubuntu installer |
-| `dist/khana_0.4.0-1_amd64.deb.sha256` | Installer checksum |
+| `dist/khana_0.5.0-1_amd64.deb` | Ubuntu installer |
+| `dist/khana_0.5.0-1_amd64.deb.sha256` | Installer checksum |
 | `dist/Khana` (optional) | Portable Linux executable |
 | `dist/SHA256SUMS` (with the portable executable) | Portable executable checksum |
 
-These names describe version 0.4.0. Update versioned examples when publishing a newer package. Build and test each asset from the same release source before uploading it.
+These names describe version 0.5.0. Update versioned examples when publishing a newer package. Build and test each asset from the same release source before uploading it.
 
 ## Reading
 
-- Open `.md`, `.markdown`, `.mdown`, `.mkd`, `.txt`, `.html`, or `.htm` files with **Open file**, drag and drop, or the command line.
+- Open `.md`, `.markdown`, `.mdown`, `.mkd`, `.txt`, `.html`, `.htm`, `.docx`, `.doc`, `.pdf`, `.json`, `.yaml`, `.yml`, `.log`, `.conf`, `.cfg`, `.ini`, or `.xml` files with **Open file**, drag and drop, or the command line.
 - Keep several documents open and use **ON THIS PAGE** to jump to headings.
 - **Smart** detects each paragraph, heading, list item, and table cell independently. A Persian sentence beginning with an English product name remains right to left. Primarily English paragraphs remain left to right.
 - Code blocks remain left to right. English phrases, inline code, paths, and URLs are isolated from surrounding Persian text. English phrases spanning emphasis or links are kept together.
@@ -182,8 +182,11 @@ Reading information is local to this device, in `library.sqlite3` beside `settin
 
 ## Create, edit, and save
 
-- Select **MD** or **HTML** beside **New document**, then click the button (or press Ctrl+N) to create a draft.
+- Select **MD**, **HTML**, **Word**, **JSON**, **YAML**, **LOG**, **CONF**, or **XML** beside **New document**, then click the button (or press Ctrl+N) to create a draft.
 - Select **Edit & Preview** (Ctrl+E) to edit the original source beside a live preview. The preview updates after a brief pause in typing. Use **Read** to return to the full reading layout.
+- **Sync scroll** is enabled by default: scrolling the editor moves the preview to corresponding source lines, and scrolling the preview moves the editor back to those lines. Wrapped source lines and rendered block heights are taken into account. Live updates follow the editing position. Uncheck **Sync scroll** in the editor footer for independent scrolling; this preference survives restarts. HTML with several elements on one source line is mapped at that line's granularity.
+- The formatting and image toolbar appears only for **Markdown**, **HTML**, and **Word**. JSON, YAML, LOG, CONF, XML, and PDF do not display text-formatting controls; formatting shortcuts do not insert markup into data files.
+- **Image** opens a local file picker. Markdown and HTML use an absolute `file:///…` URL, including files outside the document folder. Images can be inserted before saving a draft. Moving or deleting that image later breaks the reference; Word embeds images when saved.
 - Each document keeps its own source buffer and undo history while switching tabs or reading modes. Standard Ctrl+Z / Ctrl+Shift+Z editing shortcuts work in the source field.
 - The editor has independent **Auto / LTR / RTL** direction controls. The reading toolbar controls the preview direction.
 - The source toolbar provides **Bold**, **Italic**, **Strikethrough**, **H1–H3**, **Link**, **Inline code**, **Code block**, **Quote**, **Bulleted list**, **Numbered list**, and **Horizontal rule**. Select source text and choose a button; without a selection, inline tools insert a selected placeholder. Headings and Markdown lists act on the selected/current lines.
@@ -246,9 +249,22 @@ Open [examples/tables-and-flowcharts.md](examples/tables-and-flowcharts.md) for 
 
 HTML is displayed in a consistent reading layout: headings, paragraphs, lists, links, tables, images, code, and disclosure sections. Scripts, forms, embedded pages, and the original page's CSS are removed. Existing HTML `dir="rtl"` / `dir="ltr"` hints are honored in Smart mode.
 
-No server or internet connection is needed after installation. No content is uploaded. Images load from the document's folder and its subfolders; remote images are replaced by placeholders. External links open in your default browser only when clicked. Relative Markdown/HTML links inside the document's folder open in Khana.
+No server or internet connection is needed after installation. No content is uploaded. Images can use relative paths, absolute system paths, or local `file:///…` URLs; embedded Word images are supported too. Remote images are replaced by placeholders. External links open in your default browser only when clicked. Relative supported-document links inside the document's folder open in Khana.
 
-Files must use UTF-8 (with or without BOM) or UTF-16 with BOM and be no larger than 5 MB. Raw HTML embedded inside Markdown is shown as text. Smart direction is a heuristic; use the manual direction controls for ambiguous sentences.
+Text files must use UTF-8 (with or without BOM) or UTF-16 with BOM. The current file-size limit is 5 MB, including Word and PDF files. Raw HTML embedded inside Markdown is shown as text. Smart direction is a heuristic; use the manual direction controls for ambiguous sentences.
+
+## Word, PDF, and structured text
+
+| Format | Reading and editing |
+| --- | --- |
+| JSON, YAML, XML | Literal source with syntax colors and line numbers; edit and save without reformatting or executing it. Incomplete syntax remains visible while typing. |
+| LOG, CONF (`.conf`, `.cfg`, `.ini`) | Literal lines, preserved whitespace, search, marks, notes, and source editing. Configuration syntax is highlighted as INI; logs remain plain text. |
+| Word (`.docx`, `.doc`) | Import text, headings, common character styles, tables, and images into an HTML editing source. Formatting buttons insert HTML; saving exports back to Word through LibreOffice Writer. |
+| PDF | Original pages rendered on demand, with simple text-region replacement. Image-only pages and complex text regions remain read-only. |
+
+Word requires LibreOffice Writer (`libreoffice` or `soffice` on PATH for source/portable runs, including Windows). Each conversion uses a temporary isolated profile. Word editing uses a simplified reading layout; saving edited content may change advanced Word features such as page layout, fields, headers, tracked changes, and complex styles. Use **Save As…** when keeping the original layout is important.
+
+For a PDF, hover over an editable text region and click **Edit text** (or double-click the region). Enter replacement text, choose **Apply**, review the page, then **Save** or **Save As…**. Text is replaced within its existing region; longer replacements may shrink to fit, and replacements that do not fit are rejected. Replacement fonts may differ from the original. Overlapping/rotated regions and PDFs without editable text are for reading only. Password-protected PDFs require an unlocked copy. No OCR or general page-layout editor is included. PDF page text can still be searched and annotated.
 
 ## Project layout
 
@@ -259,9 +275,11 @@ Files must use UTF-8 (with or without BOM) or UTF-16 with BOM and be no larger t
 | `reader/documents.py` | Document loading, Markdown rendering, HTML sanitization |
 | `reader/editing.py` | Source buffers, encoding preservation, conflict detection, atomic writes |
 | `reader/library.py` | Persistent document library, stars, reading marks, notes, and session restoration |
+| `reader/word_documents.py`, `reader/pdf_documents.py` | Word conversion, PDF pages, and simple PDF text replacement |
 | `reader/web/annotations.js`, `reader/web/library-ui.js`, `reader/web/library.css` | Text anchors and library/annotation controls |
 | `reader/web/bidi.js` | Direction detection and inline isolation |
 | `reader/web/app.js` | Reading interface and document state |
+| `reader/web/scroll-sync.js`, `reader/web/pdf-ui.js`, `reader/web/formats.css` | Bidirectional scroll mapping, PDF controls, and source-line presentation |
 | `reader/web/formatting.js` | Selection transformations for formatting and links |
 | `reader/web/insertions.js`, `reader/web/builders.js` | Table/flowchart serialization and builder dialogs |
 | `reader/web/diagrams.js` | Offline diagram rendering, direction, themes, and zoom |
@@ -279,13 +297,15 @@ node --test tests/bidi.test.cjs
 node --test tests/formatting.test.cjs
 node --test tests/insertions.test.cjs
 node --test tests/annotations.test.cjs
+node --test tests/scroll-sync.test.cjs
 .venv/bin/python tests/desktop_smoke.py
 .venv/bin/python tests/editor_smoke.py
 .venv/bin/python tests/builders_smoke.py
 .venv/bin/python tests/library_smoke.py
+.venv/bin/python tests/formats_smoke.py
 ```
 
-The last four checks require a graphical desktop and exercise the actual Qt/WebEngine window, reading, editing, live preview, saving, save-as, external changes, save/discard/cancel behavior, table/flowchart builders, diagram rendering, and annotation persistence across restarts. They use temporary files and save screenshots in `artifacts/`. Node is only needed for JavaScript unit tests, not to run the app.
+The last five checks require a graphical desktop and exercise the actual Qt/WebEngine window, reading, editing, live preview, saving, save-as, external changes, save/discard/cancel behavior, table/flowchart builders, diagram rendering, annotation persistence, both scroll directions, Word/PDF editing, and image insertion. The formats check also needs LibreOffice Writer. They use temporary files and save screenshots in `artifacts/`. Node is only needed for JavaScript unit tests, not to run the app.
 
 After building, verify the packaged application on a graphical desktop:
 
@@ -299,3 +319,5 @@ The first command requires a portable build; the second requires the `.deb`. The
 The bundled Noto Sans Arabic font's license is included in `reader/web/fonts/LICENSE.txt`. PySide6/Qt and the other dependencies retain their respective upstream licenses.
 
 Mermaid 11.12.2 is bundled locally under the MIT license; see [vendor notes](reader/web/vendor/README.md) and `reader/web/vendor/MERMAID-LICENSE.txt`. No CDN access is used at runtime.
+
+PDF page rendering and text replacement use PyMuPDF; its license is included in the packaged third-party notices. The implementation uses its [text insertion and redaction APIs](https://pymupdf.readthedocs.io/en/latest/page.html), with image and vector removal disabled for text replacements.

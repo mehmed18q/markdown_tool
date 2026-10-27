@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="editor.css">
   <link rel="stylesheet" href="builders.css">
   <link rel="stylesheet" href="library.css">
+  <link rel="stylesheet" href="formats.css">
   <script src="qrc:///qtwebchannel/qwebchannel.js" defer></script>
   <script src="bidi.js" defer></script>
   <script src="formatting.js" defer></script>
@@ -18,6 +19,8 @@
   <script src="builders.js" defer></script>
   <script src="annotations.js" defer></script>
   <script src="library-ui.js" defer></script>
+  <script src="scroll-sync.js" defer></script>
+  <script src="pdf-ui.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -48,13 +51,13 @@
     <aside class="sidebar" aria-label="Files and document outline">
       <div class="brand"><img src="icon.svg" alt="" width="45" height="45"><div><span class="brand-name">Khana<span class="brand-dot">.</span></span><span class="brand-tagline">A little clarity. In every language.</span></div></div>
       <button id="open-file" class="open-button"><svg><use href="#i-plus"/></svg><span>Open file</span><kbd>Ctrl O</kbd></button>
-      <div class="new-document-controls"><button id="new-file" title="New document (Ctrl+N)"><svg><use href="#i-plus"/></svg>New document</button><select id="new-format" aria-label="New document format"><option value="Markdown">MD</option><option value="HTML">HTML</option></select></div>
-      <div class="file-drop-hint">or drop a file here <span dir="ltr">.md · .html</span></div>
+      <div class="new-document-controls"><button id="new-file" title="New document (Ctrl+N)"><svg><use href="#i-plus"/></svg>New document</button><select id="new-format" aria-label="New document format"><option value="Markdown">MD</option><option value="HTML">HTML</option><option value="Word">Word</option><option value="JSON">JSON</option><option value="YAML">YAML</option><option value="LOG">LOG</option><option value="CONF">CONF</option><option value="XML">XML</option></select></div>
+      <div class="file-drop-hint">or drop a file here <span dir="ltr">documents &amp; text</span></div>
 
       <section class="files-section"><div class="section-label"><span>OPEN FILES</span><span id="file-count" class="count-badge">0</span></div><div id="file-list" class="file-list"></div></section>
       <section class="library-section" aria-label="Saved document library"><div class="library-heading"><div class="section-label">LIBRARY</div><div class="library-filter" role="group" aria-label="Library filter"><button id="library-all" class="active" aria-pressed="true">All</button><button id="library-starred" aria-pressed="false">Starred</button></div></div><div id="library-list" class="library-list"></div></section>
       <section class="outline-section"><div class="section-label"><span>ON THIS PAGE</span><svg><use href="#i-book"/></svg></div><nav id="outline" aria-label="Document outline"></nav></section>
-      <div class="sidebar-bottom"><button id="sample-button" class="text-button"><svg><use href="#i-book"/></svg>Meet Khana</button><div class="local-note"><span class="status-dot"></span>Local & offline<svg><use href="#i-lock"/></svg></div><div class="version-note">Khana <span dir="ltr">/ 0.4</span><span>Read. Write. Make it yours.</span></div></div>
+      <div class="sidebar-bottom"><button id="sample-button" class="text-button"><svg><use href="#i-book"/></svg>Meet Khana</button><div class="local-note"><span class="status-dot"></span>Local & offline<svg><use href="#i-lock"/></svg></div><div class="version-note">Khana <span dir="ltr">/ 0.5</span><span>Read. Write. Make it yours.</span></div></div>
     </aside>
 
     <main class="main-panel">
@@ -65,6 +68,7 @@
         <button id="theme-button" class="icon-button" title="Toggle theme" aria-label="Dark theme"><svg><use href="#i-moon"/></svg></button>
         <button id="focus-button" class="icon-button" title="Focus mode (Ctrl+Shift+F)" aria-label="Focus mode" aria-pressed="false"><svg><use href="#i-focus"/></svg></button>
         <button id="fullscreen-button" class="fullscreen-button" title="Toggle fullscreen (F11)">F11</button>
+        <button id="minimize-button" class="icon-button" title="Minimize" aria-label="Minimize"><svg viewBox="0 0 24 24"><path d="M5 16h14"/></svg></button>
         <button id="quit-button" class="icon-button quit-button" title="Close app" aria-label="Close app"><svg><use href="#i-close"/></svg></button>
       </div></header>
 
@@ -91,6 +95,7 @@
         <button data-format="h3" title="Heading 3" aria-label="Heading 3">H3</button>
         <span class="format-divider"></span>
         <button data-format="link" title="Insert link (Ctrl+K)" aria-label="Insert link"><svg viewBox="0 0 24 24"><path d="m10 13 4-4m-6 5-1 1a3.5 3.5 0 0 1-5-5l4-4a3.5 3.5 0 0 1 5 0m2 4 1-1a3.5 3.5 0 0 1 5 5l-4 4a3.5 3.5 0 0 1-5 0"/></svg></button>
+        <button data-format="image" title="Insert image from your computer" aria-label="Insert image">Image</button>
         <button data-format="code" title="Inline code (Ctrl+`)" aria-label="Inline code">&lt;/&gt;</button>
         <button data-format="code-block" title="Code block" aria-label="Code block">{ }</button>
         <span class="format-divider"></span>
@@ -100,8 +105,8 @@
         <button data-format="table" title="Insert table" aria-label="Insert table">▦ Table</button>
         <button data-format="flowchart" title="Insert flowchart" aria-label="Insert flowchart">◇ Flowchart</button>
         <button data-format="rule" title="Horizontal rule" aria-label="Horizontal rule">―</button>
-      </div><div id="editor-container" class="editor-container"></div><div class="editor-footer"><span id="cursor-position">Ln 1, Col 1</span><span id="preview-status" role="status">Live preview</span></div></section>
-      <div id="reading-scroll" class="reading-scroll"><div class="paper-topline"><span><svg><use href="#i-book"/></svg>A quiet place for your words.</span><span id="reading-time">—</span></div><div id="empty-state" class="empty-state" hidden><img src="icon.svg" alt="" width="72" height="72"><h1>A new page. A fresh start.</h1><p>Open a Markdown or HTML file.<br>Settle in. Khana takes care of the rest.</p><button id="empty-open" class="open-button">Open file</button></div><article id="document" class="document" dir="rtl" aria-label="Document content" tabindex="0"></article><div id="paper-end" class="paper-end"><span></span><svg><use href="#i-book"/></svg><span></span></div></div>
+      </div><div id="word-editing-note" class="word-editing-note" hidden>Word uses an HTML editing view. Advanced layout may change when saved; use Save As to keep the original.</div><div id="editor-container" class="editor-container"></div><div class="editor-footer"><span id="cursor-position">Ln 1, Col 1</span><label id="sync-control" class="sync-control" title="Keep source and preview scrolling together"><input id="sync-scroll" type="checkbox" checked>Sync scroll</label><span id="preview-status" role="status">Live preview</span></div></section>
+      <div id="reading-scroll" class="reading-scroll"><div class="paper-topline"><span><svg><use href="#i-book"/></svg>A quiet place for your words.</span><span id="reading-time">—</span></div><div id="empty-state" class="empty-state" hidden><img src="icon.svg" alt="" width="72" height="72"><h1>A new page. A fresh start.</h1><p>Open a document or text file.<br>Settle in. Khana takes care of the rest.</p><button id="empty-open" class="open-button">Open file</button></div><article id="document" class="document" dir="rtl" aria-label="Document content" tabindex="0"></article><div id="paper-end" class="paper-end"><span></span><svg><use href="#i-book"/></svg><span></span></div></div>
       </div>
       <footer class="statusbar"><div><span id="word-count">0 words</span><span class="status-separator">·</span><span id="encoding" dir="ltr">UTF-8</span><span class="status-separator">·</span><span id="document-format">Markdown</span><span class="status-separator">·</span><span id="direction-status">Smart direction is on</span></div><span class="developer-credit" dir="ltr">© 2026 · Development by Sadeq Kiomarsi</span><div><span id="progress-label">0% read</span><div class="progress-track"><span id="progress-bar"></span></div></div></footer>
     </main>
@@ -142,6 +147,11 @@
     <div class="dialog-actions"><button id="annotation-cancel" class="secondary-button" type="button">Cancel</button><button id="annotation-save" class="save-button" type="submit">Save mark</button></div>
   </form></dialog>
   <div id="loading" class="loading" role="status" hidden><span class="spinner"></span>Opening document…</div>
+  <dialog id="pdf-dialog" class="link-dialog annotation-dialog" aria-labelledby="pdf-dialog-title"><form id="pdf-form">
+    <h2 id="pdf-dialog-title">Edit PDF text</h2><p>Replace this text region. Longer text may use a smaller font to fit. The rest of the page stays in place.</p>
+    <label for="pdf-text-input">Text</label><textarea id="pdf-text-input" dir="auto" maxlength="20000"></textarea>
+    <p id="pdf-error" class="link-error" role="alert" hidden></p><div class="dialog-actions"><button id="pdf-cancel" type="button" class="secondary-button">Cancel</button><button id="pdf-apply" type="submit" class="save-button">Apply</button></div>
+  </form></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <div class="drop-overlay"><div><svg><use href="#i-file"/></svg><h2>Drop your document here</h2><p>Make room for a little reading.</p></div></div>
 </body>

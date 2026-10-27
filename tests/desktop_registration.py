@@ -18,6 +18,9 @@ assert entry.get_startup_wm_class() == 'Khana'
 assert any(application_id + '.desktop' in group for group in GioUnix.DesktopAppInfo.search('Khana'))
 assert 'text/markdown' in entry.get_supported_types()
 assert 'text/html' in entry.get_supported_types()
+assert 'application/pdf' in entry.get_supported_types()
+assert 'application/json' in entry.get_supported_types()
+assert 'application/msword' in entry.get_supported_types()
 Gtk.init()
 theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
 assert theme.has_icon(application_id), 'The themed logo is not discoverable'

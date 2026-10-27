@@ -100,6 +100,7 @@
     article.querySelectorAll('pre > code.language-mermaid').forEach(code => {
       const source = code.textContent;
       const frame = element('figure', 'diagram-frame'), toolbar = element('div', 'diagram-toolbar');
+      for (const key of ['sourceLine', 'sourceEnd']) if (code.parentElement.dataset[key]) frame.dataset[key] = code.parentElement.dataset[key];
       const caption = element('figcaption', 'diagram-caption', 'Diagram'), actions = element('div', 'diagram-actions');
       const viewport = element('div', 'diagram-viewport'), surface = element('div', 'diagram-surface');
       const message = element('div', 'diagram-message'); message.setAttribute('role', 'status');

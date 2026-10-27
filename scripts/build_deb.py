@@ -85,10 +85,10 @@ def main():
         'Section: editors\nPriority: optional\n'
         'Maintainer: Khana local build <noreply@localhost>\n'
         f'Installed-Size: {installed_size}\n'
-        'Depends: libc6 (>= 2.43), libgl1, libegl1, desktop-file-utils, hicolor-icon-theme\n'
-        'Description: Khana - Markdown and HTML editor for Persian and English\n'
+        'Depends: libc6 (>= 2.43), libgl1, libegl1, desktop-file-utils, hicolor-icon-theme, libreoffice-writer\n'
+        'Description: Khana - document and text editor for Persian and English\n'
         ' A local desktop reader and editor with smart bidirectional text,\n'
-        ' live preview, formatting tools, tables, and offline flowcharts.\n'
+        ' synchronized preview, Word, PDF, structured text, tables and flowcharts.\n'
         ' Includes its own Python and Qt runtime. Built for Ubuntu 26.04 amd64.\n', encoding='utf-8')
     hashes = []
     for path in files:
