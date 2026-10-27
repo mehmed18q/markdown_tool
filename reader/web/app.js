@@ -3,7 +3,7 @@
   const $ = id => document.getElementById(id);
   const formatNumber = number => new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(number);
   const icon = name => `<svg aria-hidden="true"><use href="#i-${name}"/></svg>`;
-  const defaults = { theme: 'light', direction: 'smart', fontSize: 17, lineHeight: 2, wide: false, syncScroll: true };
+  const defaults = { theme: 'light', direction: 'smart', fontSize: 17, lineHeight: 2, wide: false, syncScroll: true, previewZoom: 100 };
   let settings = { ...defaults }, bridge, activeId = null, observer, toastTimer, searchTimer;
   const documents = new Map(), positions = new Map(), overrides = new Map();
   const editors = new Map(), previewTimers = new Map();
@@ -14,7 +14,11 @@
     documents, sourceOf, native: () => bridge, toast });
   const sync = ReaderScrollSync.create({ article, scroller, current: () => documents.get(activeId),
     editor: () => editors.get(activeId), enabled: () => settings.syncScroll });
+  const zoom = ReaderPreviewZoom.create({ article, scroller, beforeChange: () => sync.reset(),
+    afterChange: () => { sync.mount('preview'); updateProgress(); },
+    changed: value => { settings.previewZoom = value; bridge?.saveSettings(JSON.stringify(settings)); } });
   const supportsFormatting = doc => ['Markdown', 'HTML', 'Word'].includes(doc?.format);
+  const supportsBeautify = doc => ['JSON', 'YAML', 'XML'].includes(doc?.format);
   const pdf = ReaderPDF.create({ article, scroller, current: () => documents.get(activeId), native: () => bridge, toast,
     changed: source => { const doc = documents.get(activeId); doc.source = source; updateCaption(); renderFiles(); schedulePreview(doc); } });
 
@@ -37,6 +41,7 @@
     $('line-value').textContent = formatNumber(settings.lineHeight);
     $('wide-page').checked = settings.wide;
     $('sync-scroll').checked = settings.syncScroll;
+    zoom.restore(settings.previewZoom);
     $('theme-button').innerHTML = icon(settings.theme === 'dark' ? 'sun' : 'moon');
     $('theme-button').setAttribute('aria-label', settings.theme === 'dark' ? 'Light theme' : 'Dark theme');
     document.querySelectorAll('button[data-direction]').forEach(button => {
@@ -262,6 +267,8 @@
     $('editor-name').textContent = doc?.format === 'Word' ? 'Word source (HTML)' : `${doc?.format || 'Document'} source`;
     $('document-format').textContent = doc?.format || '—';
     $('encoding').textContent = doc?.encoding || '—';
+    $('beautify-button').disabled = Boolean(doc?.formatting);
+    $('beautify-button').textContent = doc?.formatting ? 'Formatting…' : 'Format document';
     bridge?.setDocumentTitle(doc ? `${doc.dirty ? '● ' : ''}${doc.name}` : '');
     reading.refresh();
   }
@@ -305,6 +312,7 @@
     $('direction-label').textContent = enabled ? 'Preview direction' : 'Text direction';
     $('editor-pane').hidden = !enabled || doc?.format === 'PDF';
     $('format-toolbar').hidden = !supportsFormatting(doc);
+    $('beautify-button').hidden = !enabled || !supportsBeautify(doc);
     $('word-editing-note').hidden = doc?.format !== 'Word';
     $('sync-control').hidden = !enabled || doc?.format === 'PDF';
     $('read-mode').classList.toggle('active', !enabled);
@@ -393,6 +401,32 @@
     if (doc && doc.source !== editor.value) editor.dispatchEvent(new Event('input', { bubbles: true }));
     updateCursor();
     return true;
+  }
+
+  function beautifyDocument() {
+    const doc = documents.get(activeId), editor = editors.get(activeId);
+    if (!bridge || !doc?.editMode || !supportsBeautify(doc) || !editor || editor.readOnly || doc.formatting) return;
+    doc.formatting = { editor, source: editor.value, start: editor.selectionStart, end: editor.selectionEnd, top: editor.scrollTop };
+    updateCaption();
+    bridge.formatSource(doc.id, editor.value);
+  }
+
+  function receiveSourceFormatted(raw) {
+    const result = JSON.parse(raw), doc = documents.get(result.id), context = doc?.formatting;
+    if (!context) return;
+    doc.formatting = null;
+    updateCaption();
+    if (activeId !== result.id || !doc.editMode) return;
+    if (context.editor !== editors.get(result.id) || context.editor.value !== context.source) {
+      toast('The source changed while formatting. Try Format document again.', true); return;
+    }
+    if (result.error) { toast(result.error, true); return; }
+    if (result.source === context.source) { toast('The document is already formatted.'); return; }
+    if (applySourceEdit(context.editor, { start: 0, end: context.source.length, text: result.source,
+      selectionStart: Math.min(context.start, result.source.length), selectionEnd: Math.min(context.end, result.source.length) })) {
+      context.editor.scrollTop = context.top;
+      toast('Document formatted. Ctrl+Z to undo; Save to write changes.');
+    }
   }
 
   function formatSelection(action) {
@@ -518,6 +552,7 @@
     if (name === 'save-as') saveDocument(true);
     if (name === 'close' && activeId) closeDocument(activeId);
     if (name === 'edit') setEditMode(!documents.get(activeId)?.editMode);
+    if (name === 'beautify') beautifyDocument();
     if (name === 'empty') showDocument(null);
     if (name === 'add-mark') reading.add('mark');
     if (name === 'add-note') reading.add('note');
@@ -542,6 +577,8 @@
   $('save-as-button').onclick = () => saveDocument(true);
   $('read-mode').onclick = () => setEditMode(false);
   $('edit-mode').onclick = () => setEditMode(true);
+  $('beautify-button').onmousedown = event => event.preventDefault();
+  $('beautify-button').onclick = beautifyDocument;
   document.querySelectorAll('[data-format]').forEach(button => {
     button.addEventListener('mousedown', event => event.preventDefault());
     button.onclick = () => formatSelection(button.dataset.format);
@@ -647,7 +684,7 @@
     if ((event.ctrlKey || event.metaKey) && !event.altKey) {
       const key = event.code || event.key.toLowerCase();
       const name = event.shiftKey
-        ? ({ KeyS: 'save-as', s: 'save-as', KeyF: 'focus', f: 'focus', KeyM: 'add-note', m: 'add-note' })[key]
+        ? ({ KeyS: 'save-as', s: 'save-as', KeyF: 'focus', f: 'focus', KeyM: 'add-note', m: 'add-note', KeyI: 'beautify', i: 'beautify' })[key]
         : ({ KeyO: 'open', o: 'open', KeyN: 'new', n: 'new', KeyS: 'save', s: 'save', KeyW: 'close', w: 'close', KeyE: 'edit', e: 'edit', KeyF: 'search', f: 'search', KeyR: 'reload', r: 'reload', KeyM: 'add-mark', m: 'add-mark' })[key];
       if (name) { event.preventDefault(); command(name); return; }
     }
@@ -694,6 +731,7 @@
       });
       bridge.libraryChanged.connect(raw => reading.receive(raw));
       bridge.pdfPageReady.connect(raw => pdf.receive(raw));
+      bridge.sourceFormatted.connect(receiveSourceFormatted);
       bridge.command.connect(command);
       bridge.ready();
     });

@@ -19,12 +19,12 @@ The verified environment is Ubuntu 26.04 x86_64 with Python 3.14. Windows source
 The `.deb` package includes Python, Qt WebEngine, the PDF engine, fonts, and the offline diagram renderer. Its LibreOffice Writer dependency provides `.doc` / `.docx` import and export; `apt install` installs it when needed. You do not need to clone the project or install Python separately.
 
 1. Open [Releases](https://github.com/mehmed18q/markdown_tool/releases) and expand the release's **Assets**.
-2. Download the `.deb` file and its matching `.deb.sha256` file. For version 0.5.1 these are `khana_0.5.1-1_amd64.deb` and `khana_0.5.1-1_amd64.deb.sha256`.
+2. Download the `.deb` file and its matching `.deb.sha256` file. For version 0.5.2 these are `khana_0.5.2-1_amd64.deb` and `khana_0.5.2-1_amd64.deb.sha256`.
 3. Open a terminal in the download folder and run the following commands. Use the downloaded filenames if the version differs.
 
 ```bash
-sha256sum -c khana_0.5.1-1_amd64.deb.sha256
-sudo apt install ./khana_0.5.1-1_amd64.deb
+sha256sum -c khana_0.5.2-1_amd64.deb.sha256
+sudo apt install ./khana_0.5.2-1_amd64.deb
 ```
 
 The checksum command should report **OK**. Installation asks for your Ubuntu administrator password. You can also open the `.deb` with your system's package installer.
@@ -96,6 +96,8 @@ Drag the filename, empty space in the top bar, or the Khana logo to move the win
 
 Click **Open file** to read an existing document or **New document** to start writing. Use **Edit & Preview** for editing and live preview; **Save** and **Save As…** write your changes to disk.
 
+Use **Ctrl + mouse wheel** over the document to zoom only the preview. The **Preview zoom** buttons and **Ctrl++ / Ctrl+−** adjust magnification from 50% to 300%; click **Reset** or press **Ctrl+0** to reset to 100%. Text, images, tables, diagrams, and PDF pages scale together. The sidebar, toolbars, and source editor keep their size. The zoom level is remembered across restarts, and editor/preview scroll synchronization remains available.
+
 You can pass files at startup when running from source:
 
 ```bash
@@ -112,10 +114,10 @@ Build on **Ubuntu 26.04 x86_64**. First follow the [Ubuntu source setup](#ubuntu
 sudo apt install curl dpkg desktop-file-utils
 .venv/bin/python -m pip install -r requirements-build.txt
 .venv/bin/python scripts/build_deb.py
-sudo apt install ./dist/khana_0.5.1-1_amd64.deb
+sudo apt install ./dist/khana_0.5.2-1_amd64.deb
 ```
 
-The build produces `dist/khana_0.5.1-1_amd64.deb` and its `.deb.sha256` checksum. Build as your normal user; only the final installation command needs administrator access.
+The build produces `dist/khana_0.5.2-1_amd64.deb` and its `.deb.sha256` checksum. Build as your normal user; only the final installation command needs administrator access.
 
 The installer registers `/usr/bin/khana`, `/usr/share/applications/io.khana.Khana.desktop`, and the SVG/PNG logo under the system icon theme. Its runtime is installed in `/opt/khana`. The application ID, desktop entry, and icon name match so the desktop displays **Khana** and associates its running window with the launcher.
 
@@ -155,12 +157,12 @@ Build outputs are excluded by `.gitignore`; pushing the source does not publish 
 
 | Asset | Purpose |
 | --- | --- |
-| `dist/khana_0.5.1-1_amd64.deb` | Ubuntu installer |
-| `dist/khana_0.5.1-1_amd64.deb.sha256` | Installer checksum |
+| `dist/khana_0.5.2-1_amd64.deb` | Ubuntu installer |
+| `dist/khana_0.5.2-1_amd64.deb.sha256` | Installer checksum |
 | `dist/Khana` (optional) | Portable Linux executable |
 | `dist/SHA256SUMS` (with the portable executable) | Portable executable checksum |
 
-These names describe version 0.5.1. Update versioned examples when publishing a newer package. Build and test each asset from the same release source before uploading it.
+These names describe version 0.5.2. Update versioned examples when publishing a newer package. Build and test each asset from the same release source before uploading it.
 
 ## Reading
 
@@ -222,6 +224,9 @@ Reading information is local to this device, in `library.sqlite3` beside `settin
 | Ctrl+Shift+M | Add a note |
 | Ctrl+Shift+F | Toggle focus mode |
 | F11 | Toggle fullscreen |
+| Ctrl++ / Ctrl+− | Zoom the document preview in / out |
+| Ctrl+0 | Reset preview zoom to 100% |
+| Ctrl+Shift+I | Format JSON, YAML or XML source in editing mode |
 | Escape | Close appearance/search, or leave focus mode |
 
 ## Tables and flowcharts
@@ -268,6 +273,8 @@ Text files must use UTF-8 (with or without BOM) or UTF-16 with BOM. The current 
 
 Word requires LibreOffice Writer (`libreoffice` or `soffice` on PATH for source/portable runs, including Windows). Each conversion uses a temporary isolated profile. Word editing uses a simplified reading layout; saving edited content may change advanced Word features such as page layout, fields, headers, tracked changes, and complex styles. Use **Save As…** when keeping the original layout is important.
 
+For **JSON, YAML and XML**, choose **Edit & Preview**, then **Format document** (or **Ctrl+Shift+I**). This applies consistent two-space indentation and spacing without sorting keys. JSON numbers and strings retain their original spellings; YAML keeps comments, quotes, anchors, tags, document separators, and existing inline/block styles. XML keeps comments and mixed text and respects `xml:space="preserve"`; XML containing a DTD is left unchanged. Invalid input reports an error without changing the source. Formatting is one undoable edit (**Ctrl+Z**); use **Save** to write it to disk. This button is separate from the prose styling toolbar and appears only for supported structured formats.
+
 For a PDF, hover over an editable text region and click **Edit text** (or double-click the region). Enter replacement text, choose **Apply**, review the page, then **Save** or **Save As…**. Text is replaced within its existing region; longer replacements may shrink to fit, and replacements that do not fit are rejected. Replacement fonts may differ from the original. Overlapping/rotated regions and PDFs without editable text are for reading only. Password-protected PDFs require an unlocked copy. No OCR or general page-layout editor is included. PDF page text can still be searched and annotated.
 
 ## Project layout
@@ -278,11 +285,13 @@ For a PDF, hover over an editable text region and click **Edit text** (or double
 | `reader/desktop.py` | Qt window, file dialogs, document sessions, preview workers, save/close prompts |
 | `reader/documents.py` | Document loading, Markdown rendering, HTML sanitization |
 | `reader/editing.py` | Source buffers, encoding preservation, conflict detection, atomic writes |
+| `reader/source_formatting.py` | JSON, YAML and XML source beautification |
 | `reader/library.py` | Persistent document library, stars, reading marks, notes, and session restoration |
 | `reader/word_documents.py`, `reader/pdf_documents.py` | Word conversion, PDF pages, and simple PDF text replacement |
 | `reader/web/annotations.js`, `reader/web/library-ui.js`, `reader/web/library.css` | Text anchors and library/annotation controls |
 | `reader/web/bidi.js` | Direction detection and inline isolation |
 | `reader/web/app.js` | Reading interface and document state |
+| `reader/web/preview-zoom.js` | Preview magnification, wheel/keyboard controls, and reading-position anchoring |
 | `reader/web/scroll-sync.js`, `reader/web/pdf-ui.js`, `reader/web/formats.css` | Bidirectional scroll mapping, PDF controls, and source-line presentation |
 | `reader/web/formatting.js` | Selection transformations for formatting and links |
 | `reader/web/insertions.js`, `reader/web/builders.js` | Table/flowchart serialization and builder dialogs |
@@ -303,6 +312,8 @@ node --test tests/insertions.test.cjs
 node --test tests/annotations.test.cjs
 node --test tests/scroll-sync.test.cjs
 .venv/bin/python tests/desktop_smoke.py
+.venv/bin/python tests/zoom_smoke.py
+.venv/bin/python tests/beautify_smoke.py
 .venv/bin/python tests/editor_smoke.py
 .venv/bin/python tests/builders_smoke.py
 .venv/bin/python tests/library_smoke.py

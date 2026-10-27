@@ -15,11 +15,12 @@ from bundle_smoke import PackagedApp, ROOT
 sys.path.insert(0, str(ROOT))
 import pymupdf
 from reader.word_documents import save_word, load_word
+from reader.source_formatting import beautify_source
 
 
 def main():
     app = QCoreApplication.instance() or QCoreApplication([])
-    package = ROOT / 'dist/khana_0.5.1-1_amd64.deb'
+    package = ROOT / 'dist/khana_0.5.2-1_amd64.deb'
     fields = subprocess.check_output(['dpkg-deb', '--field', str(package)], text=True)
     assert 'Package: khana\n' in fields and 'Architecture: amd64\n' in fields
     with tempfile.TemporaryDirectory(prefix='khana-deb-') as temporary:
@@ -33,7 +34,7 @@ def main():
         subprocess.run(['desktop-file-validate', str(entry)], check=True)
         assert (payload / 'usr/bin/khana').readlink() == Path('/opt/khana/Khana')
         executable = payload / 'opt/khana/Khana'
-        assert subprocess.check_output([str(executable), '--version'], text=True).strip() == 'Khana 0.5.1'
+        assert subprocess.check_output([str(executable), '--version'], text=True).strip() == 'Khana 0.5.2'
         for size in (16, 22, 24, 32, 48, 64, 128, 256, 512):
             icon = QImage(str(payload / f'usr/share/icons/hicolor/{size}x{size}/apps/io.khana.Khana.png'))
             assert icon.width() == size and icon.height() == size
@@ -54,7 +55,15 @@ def main():
         running = None
         try:
             running = PackagedApp(executable, folder, extra_env={'WAYLAND_DEBUG': 'client'})
-            assert running.evaluate("document.querySelector('.version-note').textContent.includes('0.5.1')")
+            assert running.evaluate("document.querySelector('.version-note').textContent.includes('0.5.2')")
+            dimensions = "[document.querySelector('.topbar').getBoundingClientRect().width, document.querySelector('.sidebar').getBoundingClientRect().width]"
+            before = running.evaluate(dimensions)
+            x, y = running.evaluate("(()=>{const r=document.getElementById('reading-scroll').getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]})()")
+            running.call('Input.dispatchMouseEvent', {'type': 'mouseWheel', 'x': x, 'y': y, 'deltaX': 0, 'deltaY': -120, 'modifiers': 2})
+            running.wait("document.getElementById('preview-zoom-value').textContent==='110%'", 'packaged Ctrl+wheel zooms only the preview')
+            assert running.evaluate(dimensions) == before
+            running.evaluate("document.getElementById('preview-zoom-reset').click()")
+            assert running.evaluate("readerApp.settings.previewZoom===100")
             running.evaluate("document.getElementById('minimize-button').click()")
             running.close()
             if os.environ.get('XDG_SESSION_TYPE') == 'wayland':
@@ -94,9 +103,26 @@ def main():
             running.wait("document.getElementById('document-format').textContent==='JSON'", 'packaged JSON reader')
             running.evaluate("readerApp.setEditMode(true)")
             assert running.evaluate("document.getElementById('format-toolbar').hidden && document.getElementById('sync-scroll').checked")
+            formatted = beautify_source(data_file.read_text(), 'JSON')
+            running.evaluate("document.getElementById('beautify-button').click()")
+            running.wait("document.querySelector('.source-editor:not([hidden])').value===" + json.dumps(formatted), 'packaged JSON beautifier')
+            running.evaluate("readerApp.command('save')")
+            running.wait("document.getElementById('save-status').textContent==='Saved'", 'packaged formatted JSON saves')
+            assert data_file.read_text() == formatted
             artifacts = ROOT / 'artifacts'; artifacts.mkdir(exist_ok=True)
             (artifacts / 'packaged-json.png').write_bytes(base64.b64decode(running.call('Page.captureScreenshot', {'format': 'png'})['data']))
             running.close()
+            for suffix, source in [('yaml', '# Keep comment\napp:\n     name: "سلام"\n     values: [1,2]\n'), ('xml', '<root><name>سلام</name><value>2</value></root>')]:
+                file = folder / ('format.' + suffix); file.write_text(source)
+                running = PackagedApp(executable, folder, [file])
+                running.wait("document.getElementById('current-filename').textContent===" + json.dumps(file.name), 'packaged open ' + suffix)
+                running.evaluate("readerApp.setEditMode(true);document.getElementById('beautify-button').click()")
+                formatted = beautify_source(source, suffix.upper())
+                running.wait("document.querySelector('.source-editor:not([hidden])').value===" + json.dumps(formatted), 'packaged beautifier ' + suffix)
+                running.evaluate("readerApp.command('save')")
+                running.wait("document.getElementById('save-status').textContent==='Saved'", 'packaged formatted source saves')
+                assert file.read_text() == formatted
+                running.close()
             word_file = folder / 'word.docx'; word_file.write_bytes(save_word('<h1>Packaged Word</h1>', '.docx'))
             running = PackagedApp(executable, folder, [word_file])
             running.wait("document.getElementById('document-format').textContent==='Word'", 'packaged Word conversion')

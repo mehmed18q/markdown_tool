@@ -38,7 +38,7 @@ def collect_licenses():
     output.mkdir(parents=True, exist_ok=True)
     packages = ["PySide6", "PySide6_Addons", "PySide6_Essentials", "shiboken6",
                 "markdown-it-py", "mdurl", "Pygments", "nh3", "beautifulsoup4",
-                "soupsieve", "typing_extensions", "PyInstaller", "PyMuPDF"]
+                "soupsieve", "typing_extensions", "PyInstaller", "PyMuPDF", "ruamel.yaml"]
     notices = ["Khana bundles these third-party components:", ""]
     for name in packages:
         package = distribution(name)

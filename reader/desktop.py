@@ -124,6 +124,22 @@ class PreviewTask(QRunnable):
             self.signals.failed.emit(self.document_id, str(error))
 
 
+class FormatSourceTask(QRunnable):
+    def __init__(self, document_id, source, document_format):
+        super().__init__()
+        self.document_id, self.source, self.document_format = document_id, source, document_format
+        self.signals = LoadSignals()
+
+    def run(self):
+        result = {'id': self.document_id}
+        try:
+            from reader.source_formatting import beautify_source
+            result['source'] = beautify_source(self.source, self.document_format)
+        except Exception as error:
+            result['error'] = f'Could not format {self.document_format}: {str(error)[:500]}'
+        self.signals.finished.emit(self.document_id, json.dumps(result, ensure_ascii=False))
+
+
 class Bridge(QObject):
     documentLoaded = Signal(str)
     documentSaved = Signal(str)
@@ -136,6 +152,7 @@ class Bridge(QObject):
     settingsLoaded = Signal(str)
     libraryChanged = Signal(str)
     pdfPageReady = Signal(str)
+    sourceFormatted = Signal(str)
     command = Signal(str)
 
     def __init__(self, window, initial_paths, settings_path=None):
@@ -155,6 +172,7 @@ class Bridge(QObject):
         self.opened: set[Path] = set()
         self.sessions: dict[str, EditSession] = {}
         self.preview_tasks: dict[str, PreviewTask] = {}
+        self.format_tasks: dict[str, FormatSourceTask] = {}
         self.pdf_tasks: dict[tuple, PdfPageTask] = {}
         self.pending_previews: dict[str, tuple] = {}
         self.new_count = 0
@@ -523,6 +541,21 @@ class Bridge(QObject):
     def openSample(self):
         self.load_paths([SAMPLE], sample=True)
 
+    @Slot(str, str)
+    def formatSource(self, document_id, source):
+        session = self.sessions.get(document_id)
+        if not session or document_id in self.format_tasks:
+            return
+        task = FormatSourceTask(document_id, source, session.document.format)
+        task.signals.finished.connect(self._source_formatted)
+        self.format_tasks[document_id] = task
+        self.pool.start(task)
+
+    @Slot(str, str)
+    def _source_formatted(self, document_id, result):
+        self.format_tasks.pop(document_id, None)
+        self.sourceFormatted.emit(result)
+
     @Slot(str)
     def saveSettings(self, raw):
         try:
@@ -536,6 +569,7 @@ class Bridge(QObject):
                 "lineHeight": max(1.6, min(2.6, float(values.get("lineHeight", 2)))),
                 "wide": bool(values.get("wide", False)),
                 "syncScroll": bool(values.get("syncScroll", True)),
+                "previewZoom": max(50, min(300, int(values.get("previewZoom", 100)))),
             }
         except (ValueError, TypeError):
             return
